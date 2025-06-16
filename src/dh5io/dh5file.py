@@ -72,12 +72,40 @@ class DH5File:
         self.file.close()
 
     def __str__(self):
+        cont_group_names = self.get_cont_group_names()
+        cont_groups_str = ""
+        if cont_group_names:
+            cont_groups_lines = [
+            f"            │   ├─── {name}" for name in cont_group_names[:-1]
+            ]
+            cont_groups_lines.append(
+            f"            │   └─── {cont_group_names[-1]}"
+            )
+            cont_groups_str = "\n".join(cont_groups_lines)
+        else:
+            cont_groups_str = "            │   └── (none)"
+
+        spike_group_names = self.get_spike_group_names()
+        spike_groups_str = ""
+        if spike_group_names:
+            spike_groups_lines = [
+            f"            │   ├─── {name}" for name in spike_group_names[:-1]
+            ]
+            spike_groups_lines.append(
+            f"            │   └─── {spike_group_names[-1]}"
+            )
+            spike_groups_str = "\n".join(spike_groups_lines)
+        else:
+            spike_groups_str = "            │   └── (none)"
+
         return f"""
         DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
-            ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
-            ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
-            ├─── {len(self.get_events_dataset()):5d} Events
-            └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
+            ├───CONT Groups ({len(cont_group_names):d}):
+    {cont_groups_str}
+            ├───SPIKE Groups ({len(spike_group_names):d}):
+    {spike_groups_str}
+            ├─── {len(self.get_events_dataset()):d} Events
+            └─── {len(self.get_trialmap()):d} Trials in TRIALMAP
         """
 
     @property
