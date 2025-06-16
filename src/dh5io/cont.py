@@ -147,6 +147,114 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+
+class Cont():
+    def __init__(self, group: h5py.Group):
+        
+        self._group = group
+
+    @property
+    def data(self) -> np.ndarray:
+        """Return the raw signal data (nSamples, nChannels)."""
+        return self._group[DATA_DATASET_NAME][()]
+
+    @property
+    def index(self) -> np.ndarray:
+        """Return the index array (regions, fields: time, offset)."""
+        return self._group[INDEX_DATASET_NAME][()]
+
+    @property
+    def calibration(self) -> CalibrationType | None:
+        """Return the calibration array or None if missing."""
+        return self._group.attrs.get("Calibration")
+
+    @property
+    def channels(self) -> np.ndarray | None:
+        """Return the channels attribute array or None if missing."""
+        return self._group.attrs.get("Channels")
+
+    @property
+    def sample_period(self) -> int:
+        """Return the sample period in nanoseconds."""
+        return int(self._group.attrs["SamplePeriod"])
+
+    @property
+    def name(self) -> str:
+        """Return the name attribute."""
+        return self._group.attrs.get("Name", self._group.name)
+
+    @property
+    def comment(self) -> str:
+        """Return the comment attribute."""
+        return self._group.attrs.get("Comment", "")
+
+    @property
+    def signal_type(self) -> ContSignalType | None:
+        """Return the signal type as ContSignalType or None."""
+        val = self._group.attrs.get("SignalType")
+        if val is not None:
+            try:
+                return ContSignalType(val)
+            except ValueError:
+                return None
+        return None
+
+    @property
+    def n_channels(self) -> int:
+        """Return the number of channels in the CONT block."""
+        return self.data.shape[1]
+
+    @property
+    def n_samples(self) -> int:
+        """Return the number of samples."""
+        return self.data.shape[0]
+
+    @property
+    def duration_s(self) -> float:
+        """Return the total duration of the CONT block in seconds."""
+        if self.n_regions == 0:
+            return 0.0
+        index = self.index
+        sample_period = self.sample_period
+        data_shape = self.data.shape
+        if data_shape[0] == 0:
+            return 0.0
+        # Last region's offset and number of samples
+        last_region = index[-1]
+        last_offset = last_region["offset"]
+        n_samples = data_shape[0]
+        # Start time of first region
+        start_time = index[0]["time"]
+        # End time of last sample
+        end_time = last_region["time"] + (n_samples - last_offset) * sample_period
+        return (end_time - start_time) / 1e9
+
+    @property
+    def n_regions(self) -> int:
+        """Return the number of regions (index items)."""
+        return self.index.shape[0]
+
+    @property
+    def calibrated_data(self) -> np.ndarray:
+        """Return calibrated data if calibration is present, else raw data."""
+        calib = self.calibration
+        if calib is None:
+            warnings.warn(
+                DH5Warning(f"Calibration attribute is missing from {self._group.name}")
+            )
+            return self.data
+        return self.data * calib
+
+    @classmethod
+    def from_group(cls, group: h5py.Group) -> "Cont":
+        """Create a Cont instance from an h5py.Group."""
+        return cls(group)
+    
+    
+
+
+
+
 # create
 @ensure_h5py_file
 def create_empty_cont_group_in_file(
