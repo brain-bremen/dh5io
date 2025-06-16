@@ -34,19 +34,19 @@ class TestDH5FileCont:
         contNames = test_file.get_cont_group_names()
         assert len(contNames) == 7
         assert contNames == [
-            "CONT1",
-            "CONT1001",
+            "CONT1",            
             "CONT60",
             "CONT61",
             "CONT62",
             "CONT63",
             "CONT64",
+            "CONT1001",
         ]
 
     def test_get_cont_group_ids(self, test_file: DH5File):
         contIds = test_file.get_cont_group_ids()
         assert len(contIds) == 7
-        assert contIds == [1, 1001, 60, 61, 62, 63, 64]
+        assert contIds == [1, 60, 61, 62, 63, 64, 1001]
 
     def test_get_cont_group_by_id(self, test_file: DH5File):
         contGroup = test_file.get_cont_group_by_id(1)

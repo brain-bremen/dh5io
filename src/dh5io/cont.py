@@ -298,11 +298,13 @@ def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
 def get_cont_group_names_from_file(
     filename: h5py.File,
 ) -> list[str]:
-    return [
+    cont_group_names =  [
         name
         for name in filename.keys()
         if name.startswith(CONT_PREFIX) and isinstance(filename[name], h5py.Group)
     ]
+    cont_group_names.sort(key=lambda name: int(name[len(CONT_PREFIX):]))
+    return cont_group_names
 
 
 @ensure_h5py_file
