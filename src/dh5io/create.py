@@ -15,6 +15,7 @@ def create_dh_file(
     filename: str | pathlib.Path,
     overwrite=False,
     file_version: int = 2,
+    validate: bool = True,
     boards: list[str] = [],
 ) -> DH5File:
     if not overwrite and os.path.exists(filename):
@@ -33,6 +34,7 @@ def create_dh_file(
 
     add_operation_to_file(h5file, "create_file", tool="dh5io", id=0)
 
-    validate_dh5_file(h5file)
+    if validate:
+        validate_dh5_file(h5file)
 
     return dh5File
