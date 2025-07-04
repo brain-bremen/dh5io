@@ -142,6 +142,7 @@ from dhspec.cont import (
     create_channel_info,
 )
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ class Cont():
 
 
     @property
-    def data(self) -> np.ndarray:
+    def data(self) -> npt.NDArray[np.int16]:
         """Return the raw signal data (nSamples, nChannels)."""
         return self._group[DATA_DATASET_NAME][()]
 
@@ -240,14 +241,14 @@ class Cont():
         return self.index.shape[0]
 
     @property
-    def calibrated_data(self) -> np.ndarray:
+    def calibrated_data(self) -> npt.NDArray[np.float64]:
         """Return calibrated data if calibration is present, else raw data."""
         calib = self.calibration
         if calib is None:
             warnings.warn(
                 DH5Warning(f"Calibration attribute is missing from {self._group.name}")
             )
-            return self.data
+            return self.data.astype(np.float64)
         return self.data * calib
 
 
