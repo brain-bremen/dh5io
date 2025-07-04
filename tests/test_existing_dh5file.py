@@ -4,6 +4,7 @@ import numpy
 import h5py
 from dh5io import DH5File
 from dh5io import DH5Error, validate_dh5_file
+from dh5io.cont import Cont
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
@@ -28,13 +29,13 @@ class TestDH5FileCont:
     def test_get_cont_groups(self, test_file: DH5File):
         contGroups = test_file.get_cont_groups()
         assert len(contGroups) == 7
-        assert all([isinstance(cont, h5py.Group) for cont in contGroups])
+        assert all([isinstance(cont, Cont) for cont in contGroups])
 
     def test_get_cont_group_names(self, test_file: DH5File):
         contNames = test_file.get_cont_group_names()
         assert len(contNames) == 7
         assert contNames == [
-            "CONT1",            
+            "CONT1",
             "CONT60",
             "CONT61",
             "CONT62",
@@ -50,8 +51,8 @@ class TestDH5FileCont:
 
     def test_get_cont_group_by_id(self, test_file: DH5File):
         contGroup = test_file.get_cont_group_by_id(1)
-        assert isinstance(contGroup, h5py.Group)
-        assert contGroup.name == "/CONT1"
+        assert isinstance(contGroup, Cont)
+        assert contGroup.id == 1
         # expect an DH5Error if the group does not exist
         with pytest.raises(DH5Error):
             test_file.get_cont_group_by_id(99999)

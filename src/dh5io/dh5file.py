@@ -117,8 +117,8 @@ class DH5File:
         return self.file.attrs.get(BOARDS_ATTRIBUTE_NAME)
 
     # cont groups
-    def get_cont_groups(self) -> list[h5py.Group]:
-        return cont.get_cont_groups_from_file(self.file)
+    def get_cont_groups(self) -> list[cont.Cont]:
+        return [cont.Cont(group) for group in cont.get_cont_groups_from_file(self.file)]
 
     def get_cont_group_names(self) -> list[str]:
         return cont.get_cont_group_names_from_file(self.file)
@@ -126,8 +126,8 @@ class DH5File:
     def get_cont_group_ids(self) -> list[int]:
         return cont.enumerate_cont_groups(self.file)
 
-    def get_cont_group_by_id(self, id: int) -> h5py.Group:
-        return cont.get_cont_group_by_id_from_file(self.file, id)
+    def get_cont_group_by_id(self, id: int) -> cont.Cont:
+        return cont.Cont(cont.get_cont_group_by_id_from_file(self.file, id))
 
     def get_cont_data_by_id(self, cont_id: int) -> numpy.ndarray:
         return cont.get_cont_data_by_id_from_file(self.file, cont_id)

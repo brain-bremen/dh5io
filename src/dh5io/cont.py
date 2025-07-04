@@ -128,7 +128,6 @@ region, and their respective time stamps.
 import logging
 import h5py
 import warnings
-from dh5io.ensure_h5py_file import ensure_h5py_file
 from dh5io.errors import DH5Error, DH5Warning
 from dhspec.cont import (
     CalibrationType,
@@ -149,9 +148,15 @@ logger = logging.getLogger(__name__)
 
 
 class Cont():
+    """Abstraction for the HDF5 Group containing continuous signal data"""
     def __init__(self, group: h5py.Group):
-        
         self._group = group
+
+    @property
+    def id(self) -> int:
+        """Return the unique identifier of the continuous signal."""
+        return cont_id_from_name(self._group.name)
+
 
     @property
     def data(self) -> np.ndarray:
@@ -181,7 +186,7 @@ class Cont():
     @property
     def name(self) -> str:
         """Return the name attribute."""
-        return self._group.attrs.get("Name", self._group.name)
+        return str(self._group.attrs["Name"])
 
     @property
     def comment(self) -> str:
@@ -245,18 +250,13 @@ class Cont():
             return self.data
         return self.data * calib
 
+
     @classmethod
     def from_group(cls, group: h5py.Group) -> "Cont":
         """Create a Cont instance from an h5py.Group."""
         return cls(group)
-    
-    
-
-
-
 
 # create
-@ensure_h5py_file
 def create_empty_cont_group_in_file(
     file: h5py.File,
     cont_group_id: int | None,
@@ -330,7 +330,6 @@ def create_empty_cont_group_in_file(
     return cont_group
 
 
-@ensure_h5py_file
 def create_cont_group_from_data_in_file(
     file: h5py.File,
     cont_group_id: int,  # group name will be CONT_{cont_group_id}
@@ -369,17 +368,14 @@ def create_cont_group_from_data_in_file(
     return cont_group
 
 
-@ensure_h5py_file
 def enumerate_cont_groups(file: h5py.File) -> list[int]:
     return [cont_id_from_name(name) for name in get_cont_group_names_from_file(file)]
 
 
-@ensure_h5py_file
 def get_cont_data_by_id_from_file(file: h5py.File, cont_id: int) -> np.ndarray:
     return np.array(get_cont_group_by_id_from_file(file, cont_id).get("DATA")[:])
 
 
-@ensure_h5py_file
 def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     """Return calibrated data from a CONT group. If calibration attribute is
     missing, return raw data, but issue warning. The shape of the returned array
@@ -394,7 +390,6 @@ def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     return get_cont_data_by_id_from_file(file, cont_id) * calibration
 
 
-@ensure_h5py_file
 def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
     contGroup = file.get(cont_name_from_id(id))
     if contGroup is None:
@@ -402,7 +397,6 @@ def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
     return contGroup
 
 
-@ensure_h5py_file
 def get_cont_group_names_from_file(
     filename: h5py.File,
 ) -> list[str]:
@@ -415,16 +409,12 @@ def get_cont_group_names_from_file(
     return cont_group_names
 
 
-@ensure_h5py_file
 def get_cont_groups_from_file(file: h5py.File) -> list[h5py.Group]:
     cont_group_names = get_cont_group_names_from_file(file)
     return [file[name] for name in cont_group_names]
 
 
 # validate
-
-
-@ensure_h5py_file
 def validate_cont_dtype(file: h5py.File) -> None:
     # check for named data type /CONT_INDEX_ITEM
     if CONT_DTYPE_NAME not in file:
