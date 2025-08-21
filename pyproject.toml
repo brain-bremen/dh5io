@@ -9,6 +9,24 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["numpy", "h5py"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = [
+    "data format",
+    "electrophysiology",
+    "hdf5",
+    "daq",
+]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -22,7 +40,6 @@ line-length = 96
 
 [project.scripts]
 dh5tree = "dh5cli.dh5tree:main"
-
 [project.optional-dependencies]
 dev = [
     "ipykernel>=6.29.5",
