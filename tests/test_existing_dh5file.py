@@ -3,7 +3,8 @@ import pytest
 import numpy
 import h5py
 from dh5io import DH5File
-from dh5io import DH5Error, validate_dh5_file
+from dh5io import DH5Error
+from dh5io.validation import validate_dh5_file
 from dh5io.cont import Cont
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
