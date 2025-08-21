@@ -78,32 +78,32 @@ class DH5File:
         cont_groups_str = ""
         if cont_group_names:
             cont_groups_lines = [
-                f"            │   ├─── {name}" for name in cont_group_names[:-1]
+                f"        │   ├─── {name}" for name in cont_group_names[:-1]
             ]
-            cont_groups_lines.append(f"            │   └─── {cont_group_names[-1]}")
+            cont_groups_lines.append(f"        │   └─── {cont_group_names[-1]}")
             cont_groups_str = "\n".join(cont_groups_lines)
         else:
-            cont_groups_str = "            │   └── (none)"
+            cont_groups_str = "        │   └── (none)"
 
         spike_group_names = self.get_spike_group_names()
         spike_groups_str = ""
         if spike_group_names:
             spike_groups_lines = [
-                f"            │   ├─── {name}" for name in spike_group_names[:-1]
+                f"        │   ├─── {name}" for name in spike_group_names[:-1]
             ]
-            spike_groups_lines.append(f"            │   └─── {spike_group_names[-1]}")
+            spike_groups_lines.append(f"        │   └─── {spike_group_names[-1]}")
             spike_groups_str = "\n".join(spike_groups_lines)
         else:
-            spike_groups_str = "            │   └── (none)"
+            spike_groups_str = "        │   └── (none)"
 
         return f"""
-        DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
-            ├───CONT Groups ({len(cont_group_names):d}):
+    DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
+        ├───CONT Groups ({len(cont_group_names):d}):
 {cont_groups_str}
-            ├───SPIKE Groups ({len(spike_group_names):d}):
+        ├───SPIKE Groups ({len(spike_group_names):d}):
 {spike_groups_str}
-            ├─── {len(self.get_events_dataset()):d} Events
-            └─── {len(self.get_trialmap()):d} Trials in TRIALMAP
+        ├─── {len(self.get_events_dataset()):d} Events
+        └─── {len(self.get_trialmap()):d} Trials in TRIALMAP
         """
 
     @property

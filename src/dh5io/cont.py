@@ -155,19 +155,19 @@ class Cont:
 
     def __str__(self):
         # show a tree view with all the properties below
-        return f"""{self._group.name} in {self._group.file.filename}
-    ├─── id: {self.id}
-    ├─── name: {self.name}
-    ├─── comment: {self.comment}
-    ├─── sample_period: {self.sample_period} ns ({1 / self.sample_period * 1e9} Hz)
-    ├─── n_channels: {self.n_channels}
-    ├─── n_samples: {self.n_samples}
-    ├─── duration: {self.duration_s:.2f} s
-    ├─── n_regions: {self.n_regions}
-    ├─── signal_type: {self.signal_type.name if self.signal_type else "None"}
-    ├─── calibration: {self.calibration if self.calibration is not None else "None"}
-    ├─── data: {self.data.shape}
-    └─── index: {self.index.shape}
+        return f"""    {self._group.name} in {self._group.file.filename}
+        ├─── id: {self.id}
+        ├─── name: {self.name}
+        ├─── comment: {self.comment}
+        ├─── sample_period: {self.sample_period} ns ({1 / self.sample_period * 1e9} Hz)
+        ├─── n_channels: {self.n_channels}
+        ├─── n_samples: {self.n_samples}
+        ├─── duration: {self.duration_s:.2f} s
+        ├─── n_regions: {self.n_regions}
+        ├─── signal_type: {self.signal_type.name if self.signal_type else "None"}
+        ├─── calibration: {self.calibration if self.calibration is not None else "None"}
+        ├─── data: {self.data.shape}
+        └─── index: {self.index.shape}
             """
 
     def __repr__(self):
