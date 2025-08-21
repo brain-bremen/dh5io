@@ -6,6 +6,7 @@ from dh5io import DH5File
 from dh5io import DH5Error
 from dh5io.validation import validate_dh5_file
 from dh5io.cont import Cont
+from dh5io.trialmap import Trialmap
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
@@ -103,14 +104,18 @@ class TestDH5FileEvent:
 class TestDH5FileTrialmap:
     def test_get_trialmap(self, test_file: DH5File):
         trialmap = test_file.get_trialmap()
+        assert isinstance(trialmap, Trialmap)
         assert trialmap is not None
-        assert trialmap.shape == (385,)
+        assert trialmap.recarray.shape == (385,)
         # assert trialmap.name == "/TRIALMAP"
-        assert len(trialmap.dtype) == 5
-        assert trialmap.dtype.names == (
+        assert len(trialmap.recarray.dtype) == 5
+        assert trialmap.recarray.dtype.names == (
             "TrialNo",
             "StimNo",
             "Outcome",
             "StartTime",
             "EndTime",
         )
+
+        # test properties
+        assert len(trialmap) == 385
