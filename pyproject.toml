@@ -1,5 +1,5 @@
 [project]
-name = "dh-format"
+name = "dh5io"
 version = "0.2.0-dev"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
 authors = []
@@ -27,9 +27,9 @@ dev = [
     "ipython>=9.0.2",
     "mypy>=1.15.0",
     "ruff>=0.11.2",
-    "dh-format[all]",
+    "dh5io[all]",
 ]
 dhzio = ["zarr>=3.0.6"]
-all = ["dh-format[test]", "dh-format[neo]", "dh-format[dhzio]"]
+all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]"]
 neo = ["neo"]
-test = ["pytest", "pytest-cov", "dh-format[neo]", "dh-format[dhzio]"]
+test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]"]
