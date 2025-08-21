@@ -19,7 +19,7 @@ def test_create_dh5_file(tmp_path):
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=DH5Warning)
-        validate_dh5_file(dh5file.file)
+        validate_dh5_file(dh5file._file)
 
     with pytest.raises(FileExistsError):
         create_dh_file(filename)

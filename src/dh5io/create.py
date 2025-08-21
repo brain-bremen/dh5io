@@ -22,7 +22,7 @@ def create_dh_file(
         raise FileExistsError(f"File {filename} already exists.")
 
     dh5File = DH5File(filename, mode="w")
-    h5file = dh5File.file
+    h5file = dh5File._file
     h5file.attrs["FILEVERSION"] = file_version
 
     h5file.attrs["BOARDS"] = numpy.array(

@@ -17,7 +17,7 @@ def test_create_empty_cont_group(tmp_path):
     n_index_items = 5
     with create_dh_file(filename) as dh5file:
         cont_group = cont.create_empty_cont_group_in_file(
-            dh5file.file,
+            dh5file._file,
             cont_group_id=cont_group_id,
             sample_period_ns=sample_period_ns,
             calibration=calibration,
@@ -71,7 +71,7 @@ def test_create_cont_group_with_data(tmp_path):
     index[4] = (900, 1000)
     with create_dh_file(filename) as dh5file:
         cont_group = cont.create_cont_group_from_data_in_file(
-            dh5file.file,
+            dh5file._file,
             cont_group_id,
             sample_period_ns=sample_period_ns,
             calibration=calibration,
