@@ -1,8 +1,10 @@
 [project]
 name = "dh5io"
-version = "0.2.0-dev"
+version = "0.2.0"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
-authors = []
+authors = [
+    { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" } 
+]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
