@@ -33,16 +33,25 @@ def test_create_empty_cont_group(tmp_path):
 
     with dh5io.DH5File(filename, "r") as dh5file:
         cont_group = dh5file.get_cont_group_by_id(cont_group_id)
+
+        # functional API
         assert cont_group._group.attrs["SamplePeriod"] == sample_period_ns
         assert cont_group._group["DATA"].shape == (nSamples, nChannels)
         assert cont_group._group["INDEX"].shape == (n_index_items,)
         assert np.array_equal(cont_group._group.attrs["Calibration"], calibration)
         assert cont_group.data.shape == (nSamples, nChannels)
         assert cont_group.index.shape == (n_index_items,)
-        assert np.array_equal(cont_group.calibration , calibration)
+        assert np.array_equal(cont_group.calibration, calibration)
         assert cont_group.sample_period == sample_period_ns
         assert cont_group.signal_type == cont.ContSignalType.LFP
 
+        # object api
+        assert cont_group.sample_period == sample_period_ns
+        assert np.array_equal(cont_group.calibration, calibration)
+        assert cont_group.data.shape == (nSamples, nChannels)
+        assert cont_group.index.shape == (n_index_items,)
+        assert np.array_equal(cont_group.data, cont_group._group["DATA"])
+        assert np.array_equal(cont_group.index, cont_group._group["INDEX"])
 
 
 def test_create_cont_group_with_data(tmp_path):
@@ -88,6 +97,7 @@ def test_create_cont_group_with_data(tmp_path):
         assert np.array_equal(np.array(cont_group._group["INDEX"]), index)
         cont.validate_cont_group(cont_group._group)
 
+        # hdf5 group contents
         assert cont_group.id == cont_group_id
         assert cont_group.name == cont_group_name
         assert cont_group.sample_period == sample_period_ns
@@ -96,3 +106,11 @@ def test_create_cont_group_with_data(tmp_path):
         assert np.array_equal(np.array(cont_group.data), data)
         assert np.array_equal(np.array(cont_group.index), index)
         assert cont_group.signal_type == cont.ContSignalType.LFP
+
+        # object properties
+        assert cont_group.sample_period == sample_period_ns
+        assert np.array_equal(cont_group.calibration, calibration)
+        assert cont_group.data.shape == data.shape
+        assert np.array_equal(cont_group.data, data)
+        assert cont_group.index.shape == index.shape
+        assert np.array_equal(cont_group.index, index)
