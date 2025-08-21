@@ -155,8 +155,8 @@ class DH5File:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
 
     # trialmap
-    def get_trialmap(self) -> numpy.ndarray | None:
-        return trialmap.get_trialmap_from_file(self.file)
+    def get_trialmap(self) -> trialmap.Trialmap | None:
+        return trialmap.Trialmap(trialmap.get_trialmap_from_file(self.file))
 
     def get_events_dataset(self) -> h5py.Dataset | None:
         return event_triggers.get_event_triggers_dataset_from_file(self.file)
