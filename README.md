@@ -1,7 +1,10 @@
 # Python Tools for the DAQ-HDF5 format
 
 A Python package for handling
-[DAQ-HDF5](https://github.com/cog-neurophys-lab/DAQ-HDF5)(`*.dh5`) files. 
+[DAQ-HDF5](https://github.com/cog-neurophys-lab/DAQ-HDF5)(`*.dh5`) files. The DH5 format is
+a hierarchical data format based on [HDF5](https://www.hdfgroup.org/solutions/hdf5/)
+designed for storing and sharing neurophysiology data, used in the Brain Research Institute
+of the University of Bremen since 2005.
 
 [![Python Tests](https://github.com/cog-neurophys-lab/dh5io/actions/workflows/python-tests.yml/badge.svg)](https://github.com/cog-neurophys-lab/dh5io/actions/workflows/python-tests.yml)
 
@@ -18,13 +21,13 @@ A Python package for handling
 
 Install the package using uv (recommended):
 
-```
+```bash
 uv pip install dh5io
 ```
 
 Or with pip:
 
-```
+```bash
 pip install dh5io
 ```
 
@@ -76,6 +79,7 @@ with DH5File(example_filename, "r") as dh5:
       ├─── data: (1443184, 1)
       └─── index: (385,)
 ```
+
 This example shows how to open a DH5 file, inspect its content, and retrieve a specific CONT
 group. The `DH5File` class provides methods for accessing the various groups and datasets
 within the file. The `Cont`, `Spike` (coming in next versions) and `Trialmap` classes
