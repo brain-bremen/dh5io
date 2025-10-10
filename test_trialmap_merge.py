@@ -55,12 +55,12 @@ def test_merge_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add TRIALMAP
             trialmap = create_test_trialmap(n_trials[0], start_trial_no=1, start_time=0)
-            add_trialmap_to_file(dh5.file, trialmap)
+            add_trialmap_to_file(dh5._file, trialmap)
 
         # Create file 2 with 15 trials
         with create_dh_file(file2, overwrite=True) as dh5:
@@ -69,14 +69,14 @@ def test_merge_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (10_000_000_000, 0)  # 10 seconds later
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add TRIALMAP
             trialmap = create_test_trialmap(
                 n_trials[1], start_trial_no=11, start_time=10_000_000_000
             )
-            add_trialmap_to_file(dh5.file, trialmap)
+            add_trialmap_to_file(dh5._file, trialmap)
 
         # Create file 3 with 8 trials
         with create_dh_file(file3, overwrite=True) as dh5:
@@ -85,14 +85,14 @@ def test_merge_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (25_000_000_000, 0)  # 25 seconds later
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add TRIALMAP
             trialmap = create_test_trialmap(
                 n_trials[2], start_trial_no=26, start_time=25_000_000_000
             )
-            add_trialmap_to_file(dh5.file, trialmap)
+            add_trialmap_to_file(dh5._file, trialmap)
 
         # Merge files
         try:
@@ -157,11 +157,11 @@ def test_merge_with_missing_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             trialmap = create_test_trialmap(5, start_trial_no=1, start_time=0)
-            add_trialmap_to_file(dh5.file, trialmap)
+            add_trialmap_to_file(dh5._file, trialmap)
 
         # Create file 2 WITHOUT TRIALMAP
         with create_dh_file(file2, overwrite=True) as dh5:
@@ -169,7 +169,7 @@ def test_merge_with_missing_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (5_000_000_000, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
             # No TRIALMAP
 
@@ -179,13 +179,13 @@ def test_merge_with_missing_trialmaps():
             index = create_empty_index_array(1)
             index[0] = (10_000_000_000, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             trialmap = create_test_trialmap(
                 7, start_trial_no=6, start_time=10_000_000_000
             )
-            add_trialmap_to_file(dh5.file, trialmap)
+            add_trialmap_to_file(dh5._file, trialmap)
 
         # Merge files
         try:

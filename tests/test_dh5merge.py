@@ -56,7 +56,7 @@ def create_test_dh5_file(
     # Create file
     with create_dh_file(filepath, overwrite=True, boards=["TestBoard"]) as dh5:
         create_cont_group_from_data_in_file(
-            dh5.file,
+            dh5._file,
             cont_id,
             data=data,
             index=index,
@@ -145,7 +145,7 @@ def test_merge_specific_cont_ids(temp_dir):
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, cont_id, data, index, np.int32(1000)
+                dh5._file, cont_id, data, index, np.int32(1000)
             )
 
     with create_dh_file(file2, overwrite=True) as dh5:
@@ -154,7 +154,7 @@ def test_merge_specific_cont_ids(temp_dir):
             index = create_empty_index_array(1)
             index[0] = (1000000, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, cont_id, data, index, np.int32(1000)
+                dh5._file, cont_id, data, index, np.int32(1000)
             )
 
     # Merge only CONT blocks 0 and 2
@@ -195,7 +195,7 @@ def test_incompatible_sample_period(temp_dir):
         index = create_empty_index_array(1)
         index[0] = (0, 0)
         create_cont_group_from_data_in_file(
-            dh5.file,
+            dh5._file,
             0,
             data,
             index,
@@ -207,7 +207,7 @@ def test_incompatible_sample_period(temp_dir):
         index = create_empty_index_array(1)
         index[0] = (1000000, 0)
         create_cont_group_from_data_in_file(
-            dh5.file,
+            dh5._file,
             0,
             data,
             index,
@@ -288,7 +288,7 @@ def test_determine_cont_blocks_to_merge(temp_dir):
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, cont_id, data, index, np.int32(1000)
+                dh5._file, cont_id, data, index, np.int32(1000)
             )
 
     with create_dh_file(file2, overwrite=True) as dh5:
@@ -297,7 +297,7 @@ def test_determine_cont_blocks_to_merge(temp_dir):
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, cont_id, data, index, np.int32(1000)
+                dh5._file, cont_id, data, index, np.int32(1000)
             )
 
     with create_dh_file(file3, overwrite=True) as dh5:
@@ -306,7 +306,7 @@ def test_determine_cont_blocks_to_merge(temp_dir):
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, cont_id, data, index, np.int32(1000)
+                dh5._file, cont_id, data, index, np.int32(1000)
             )
 
     # Open files
@@ -327,7 +327,7 @@ def test_determine_cont_blocks_to_merge(temp_dir):
 
     finally:
         for dh5_file in dh5_files:
-            dh5_file.file.close()
+            dh5_file._file.close()
 
 
 def test_merge_trialmaps(temp_dir):
@@ -361,15 +361,15 @@ def test_merge_trialmaps(temp_dir):
         data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
         index = create_empty_index_array(1)
         index[0] = (0, 0)
-        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
-        add_trialmap_to_file(dh5.file, trialmap1)
+        create_cont_group_from_data_in_file(dh5._file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5._file, trialmap1)
 
     with create_dh_file(file2, overwrite=True) as dh5:
         data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
         index = create_empty_index_array(1)
         index[0] = (5000000, 0)
-        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
-        add_trialmap_to_file(dh5.file, trialmap2)
+        create_cont_group_from_data_in_file(dh5._file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5._file, trialmap2)
 
     # Merge
     merge_dh5_files([file1, file2], output)
@@ -381,12 +381,12 @@ def test_merge_trialmaps(temp_dir):
         assert len(trialmap) == 8  # 5 + 3
 
         # Check first trial from file 1
-        assert trialmap[0].TrialNo == 1
-        assert trialmap[0].StimNo == 1
+        assert trialmap.trial_numbers[0] == 1
+        assert trialmap.trial_type_numbers[0] == 1
 
         # Check first trial from file 2
-        assert trialmap[5].TrialNo == 6
-        assert trialmap[5].StimNo == 2
+        assert trialmap.trial_numbers[5] == 6
+        assert trialmap.trial_type_numbers[5] == 2
 
 
 def test_merge_with_missing_trialmaps(temp_dir):
@@ -413,15 +413,15 @@ def test_merge_with_missing_trialmaps(temp_dir):
         data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
         index = create_empty_index_array(1)
         index[0] = (0, 0)
-        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
-        add_trialmap_to_file(dh5.file, trialmap1)
+        create_cont_group_from_data_in_file(dh5._file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5._file, trialmap1)
 
     # File 2 WITHOUT TRIALMAP
     with create_dh_file(file2, overwrite=True) as dh5:
         data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
         index = create_empty_index_array(1)
         index[0] = (3000000, 0)
-        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        create_cont_group_from_data_in_file(dh5._file, 0, data, index, np.int32(1000))
         # No trialmap
 
     # File 3 with TRIALMAP
@@ -437,8 +437,8 @@ def test_merge_with_missing_trialmaps(temp_dir):
         data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
         index = create_empty_index_array(1)
         index[0] = (5000000, 0)
-        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
-        add_trialmap_to_file(dh5.file, trialmap3)
+        create_cont_group_from_data_in_file(dh5._file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5._file, trialmap3)
 
     # Merge
     merge_dh5_files([file1, file2, file3], output)
@@ -450,7 +450,7 @@ def test_merge_with_missing_trialmaps(temp_dir):
         assert len(trialmap) == 5  # 3 from file1 + 2 from file3
 
         # Check trials are in correct order
-        assert trialmap[0].TrialNo == 1
-        assert trialmap[2].TrialNo == 3
-        assert trialmap[3].TrialNo == 4
-        assert trialmap[4].TrialNo == 5
+        assert trialmap.trial_numbers[0] == 1
+        assert trialmap.trial_numbers[2] == 3
+        assert trialmap.trial_numbers[3] == 4
+        assert trialmap.trial_numbers[4] == 5

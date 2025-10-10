@@ -75,7 +75,7 @@ def merge_dh5_files(
         logger.info(f"Merging CONT blocks: {sorted(cont_blocks_to_merge)}")
 
         # Get boards attribute from first file
-        boards = input_dh5_files[0].file.attrs.get("BOARDS", [])
+        boards = input_dh5_files[0]._file.attrs.get("BOARDS", [])
 
         # Create output file
         output_dh5 = create_dh_file(
@@ -107,12 +107,12 @@ def merge_dh5_files(
             )
 
         finally:
-            output_dh5.file.close()
+            output_dh5._file.close()
 
     finally:
         # Close all input files
         for dh5_file in input_dh5_files:
-            dh5_file.file.close()
+            dh5_file._file.close()
 
 
 def determine_cont_blocks_to_merge(
@@ -149,7 +149,7 @@ def determine_cont_blocks_to_merge(
             if missing:
                 raise ValueError(
                     f"CONT blocks {sorted(missing)} not found in file {i}: "
-                    f"{input_files[i].file.filename}"
+                    f"{input_files[i]._file.filename}"
                 )
 
         return requested_ids
@@ -163,7 +163,7 @@ def determine_cont_blocks_to_merge(
             # Show what's available in each file
             for i, ids in enumerate(file_cont_ids):
                 logger.warning(
-                    f"File {i} ({input_files[i].file.filename}) has CONT blocks: {sorted(ids)}"
+                    f"File {i} ({input_files[i]._file.filename}) has CONT blocks: {sorted(ids)}"
                 )
 
         return common_ids
@@ -209,7 +209,7 @@ def merge_cont_block(
 
     # Create merged CONT block in output file
     create_cont_group_from_data_in_file(
-        output_file.file,
+        output_file._file,
         cont_id,
         data=merged_data,
         index=merged_index,
@@ -239,7 +239,7 @@ def merge_trialmaps(input_files: List[DH5File], output_file: DH5File) -> None:
     # Collect trialmaps from all files
     trialmaps = []
     for i, dh5_file in enumerate(input_files):
-        trialmap = get_trialmap_from_file(dh5_file.file)
+        trialmap = get_trialmap_from_file(dh5_file._file)
         if trialmap is not None:
             trialmaps.append(trialmap)
             logger.debug(f"File {i}: Found TRIALMAP with {len(trialmap)} trials")
@@ -265,7 +265,7 @@ def merge_trialmaps(input_files: List[DH5File], output_file: DH5File) -> None:
     )
 
     # Add to output file
-    add_trialmap_to_file(output_file.file, merged_trialmap, replace=True)
+    add_trialmap_to_file(output_file._file, merged_trialmap, replace=True)
 
 
 def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> None:
@@ -285,7 +285,7 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
     # Collect event triggers from all files
     all_event_triggers = []
     for i, dh5_file in enumerate(input_files):
-        events = get_event_triggers_from_file(dh5_file.file)
+        events = get_event_triggers_from_file(dh5_file._file)
         if events is not None:
             all_event_triggers.append(events)
             logger.debug(f"File {i}: Found EV02 with {len(events)} events")
@@ -309,7 +309,7 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
     event_codes = merged_events["event"]
 
     # Add to output file
-    add_event_triggers_to_file(output_file.file, timestamps, event_codes)
+    add_event_triggers_to_file(output_file._file, timestamps, event_codes)
 
 
 def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
@@ -328,7 +328,7 @@ def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
 
     # Add operation to file
     add_operation_to_file(
-        output_file.file,
+        output_file._file,
         new_operation_group_name="merge_files",
         tool="dh5merge (dh5io)",
     )
@@ -336,9 +336,9 @@ def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
     # Get the last operation group to add custom attributes
     from dh5io.operations import get_operations_group, get_last_operation_index
 
-    operations_group = get_operations_group(output_file.file)
+    operations_group = get_operations_group(output_file._file)
     if operations_group is not None:
-        last_index = get_last_operation_index(output_file.file)
+        last_index = get_last_operation_index(output_file._file)
         if last_index is not None:
             operation_group_name = f"{last_index:03}_merge_files"
             operation_group = operations_group[operation_group_name]

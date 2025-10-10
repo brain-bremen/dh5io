@@ -224,8 +224,8 @@ wheels = [
 ]
 
 [[package]]
-name = "dh-format"
-version = "0.2.0.dev0"
+name = "dh5io"
+version = "0.3.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "h5py" },
@@ -269,12 +269,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dh-format", extras = ["all"], marker = "extra == 'dev'" },
-    { name = "dh-format", extras = ["dhzio"], marker = "extra == 'all'" },
-    { name = "dh-format", extras = ["dhzio"], marker = "extra == 'test'" },
-    { name = "dh-format", extras = ["neo"], marker = "extra == 'all'" },
-    { name = "dh-format", extras = ["neo"], marker = "extra == 'test'" },
-    { name = "dh-format", extras = ["test"], marker = "extra == 'all'" },
+    { name = "dh5io", extras = ["all"], marker = "extra == 'dev'" },
+    { name = "dh5io", extras = ["dhzio"], marker = "extra == 'all'" },
+    { name = "dh5io", extras = ["dhzio"], marker = "extra == 'test'" },
+    { name = "dh5io", extras = ["neo"], marker = "extra == 'all'" },
+    { name = "dh5io", extras = ["neo"], marker = "extra == 'test'" },
+    { name = "dh5io", extras = ["test"], marker = "extra == 'all'" },
     { name = "h5py" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29.5" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=9.0.2" },

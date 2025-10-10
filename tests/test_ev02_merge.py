@@ -49,14 +49,14 @@ def test_merge_event_triggers():
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add EV02
             timestamps, event_codes = create_test_events(
                 n_events[0], start_time=0, start_event_code=1
             )
-            add_event_triggers_to_file(dh5.file, timestamps, event_codes)
+            add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Create file 2 with 30 events
         with create_dh_file(file2, overwrite=True) as dh5:
@@ -65,14 +65,14 @@ def test_merge_event_triggers():
             index = create_empty_index_array(1)
             index[0] = (20_000_000, 0)  # 20ms later
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add EV02
             timestamps, event_codes = create_test_events(
                 n_events[1], start_time=20_000_000, start_event_code=5
             )
-            add_event_triggers_to_file(dh5.file, timestamps, event_codes)
+            add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Create file 3 with 15 events
         with create_dh_file(file3, overwrite=True) as dh5:
@@ -81,14 +81,14 @@ def test_merge_event_triggers():
             index = create_empty_index_array(1)
             index[0] = (50_000_000, 0)  # 50ms later
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             # Add EV02
             timestamps, event_codes = create_test_events(
                 n_events[2], start_time=50_000_000, start_event_code=3
             )
-            add_event_triggers_to_file(dh5.file, timestamps, event_codes)
+            add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Merge files
         try:
@@ -150,7 +150,7 @@ def test_merge_operation_recorded():
                 index = create_empty_index_array(1)
                 index[0] = (0, 0)
                 create_cont_group_from_data_in_file(
-                    dh5.file, 0, data, index, np.int32(1000)
+                    dh5._file, 0, data, index, np.int32(1000)
                 )
 
         # Merge files
@@ -225,11 +225,11 @@ def test_merge_with_missing_ev02():
             index = create_empty_index_array(1)
             index[0] = (0, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             timestamps, event_codes = create_test_events(10, start_time=0)
-            add_event_triggers_to_file(dh5.file, timestamps, event_codes)
+            add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # File 2 WITHOUT EV02
         with create_dh_file(file2, overwrite=True) as dh5:
@@ -237,7 +237,7 @@ def test_merge_with_missing_ev02():
             index = create_empty_index_array(1)
             index[0] = (10_000_000, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
             # No EV02
 
@@ -247,11 +247,11 @@ def test_merge_with_missing_ev02():
             index = create_empty_index_array(1)
             index[0] = (20_000_000, 0)
             create_cont_group_from_data_in_file(
-                dh5.file, 0, data, index, np.int32(1000)
+                dh5._file, 0, data, index, np.int32(1000)
             )
 
             timestamps, event_codes = create_test_events(8, start_time=20_000_000)
-            add_event_triggers_to_file(dh5.file, timestamps, event_codes)
+            add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Merge files
         try:

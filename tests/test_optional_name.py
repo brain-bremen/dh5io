@@ -32,10 +32,10 @@ def test_merge_without_name_attribute():
             index1[0] = (0, 0)
 
             # Create CONT group directly without Name attribute
-            cont_group = dh5.file.create_group("CONT3")
+            cont_group = dh5._file.create_group("CONT3")
             cont_group.create_dataset("DATA", data=data1)
             cont_group.create_dataset(
-                "INDEX", data=index1, dtype=dh5.file["CONT_INDEX_ITEM"]
+                "INDEX", data=index1, dtype=dh5._file["CONT_INDEX_ITEM"]
             )
             cont_group.attrs["SamplePeriod"] = np.int32(1000)
             cont_group.attrs["Calibration"] = np.ones(3, dtype=np.float64)
@@ -48,10 +48,10 @@ def test_merge_without_name_attribute():
             index2[0] = (1000000, 0)
 
             # Create CONT group directly without Name attribute
-            cont_group = dh5.file.create_group("CONT3")
+            cont_group = dh5._file.create_group("CONT3")
             cont_group.create_dataset("DATA", data=data2)
             cont_group.create_dataset(
-                "INDEX", data=index2, dtype=dh5.file["CONT_INDEX_ITEM"]
+                "INDEX", data=index2, dtype=dh5._file["CONT_INDEX_ITEM"]
             )
             cont_group.attrs["SamplePeriod"] = np.int32(1000)
             cont_group.attrs["Calibration"] = np.ones(3, dtype=np.float64)
