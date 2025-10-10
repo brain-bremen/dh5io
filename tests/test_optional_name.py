@@ -57,25 +57,11 @@ def test_merge_without_name_attribute():
             cont_group.attrs["Calibration"] = np.ones(3, dtype=np.float64)
             # Intentionally NOT setting Name attribute
 
-        # Try to merge - this should now work without errors
-        try:
-            merge_dh5_files([file1, file2], output, overwrite=True)
+        merge_dh5_files([file1, file2], output, overwrite=True)
 
-            # Verify the merge worked
-            with DH5File(output, mode="r") as merged:
-                cont = merged.get_cont_group_by_id(3)
-                assert cont.n_samples == 250  # 100 + 150
-                assert cont.n_channels == 3
-                assert cont.n_regions == 2
-
-            print("✓ Test passed! Files without Name attribute merged successfully.")
-            return True
-
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            return False
-
-
-if __name__ == "__main__":
-    success = test_merge_without_name_attribute()
-    sys.exit(0 if success else 1)
+        # Verify the merge worked
+        with DH5File(output, mode="r") as merged:
+            cont = merged.get_cont_group_by_id(3)
+            assert cont.n_samples == 250  # 100 + 150
+            assert cont.n_channels == 3
+            assert cont.n_regions == 2

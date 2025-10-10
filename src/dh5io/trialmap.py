@@ -155,6 +155,9 @@ class Trialmap:
     def __len__(self):
         return len(self.recarray)
 
+    def __getitem__(self, index) -> numpy.recarray:
+        return self.recarray[index]
+
     def __str__(self):
         return f"""Trialmap with {len(self)} trials
     TrialNo, TrialTypeNo, Outcome, StartTmeNS, EndTimeNs

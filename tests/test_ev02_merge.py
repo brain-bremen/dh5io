@@ -96,7 +96,7 @@ def test_merge_event_triggers():
 
             # Verify the merged EV02
             with DH5File(output, mode="r") as merged:
-                merged_events = get_event_triggers_from_file(merged.file)
+                merged_events = get_event_triggers_from_file(merged._file)
 
                 assert merged_events is not None, "Merged file should have EV02"
 
@@ -154,58 +154,41 @@ def test_merge_operation_recorded():
                 )
 
         # Merge files
-        try:
-            merge_dh5_files([file1, file2], output, overwrite=True)
+        merge_dh5_files([file1, file2], output, overwrite=True)
 
-            # Verify operation was recorded
-            with DH5File(output, mode="r") as merged:
-                operations_group = get_operations_group(merged.file)
+        # Verify operation was recorded
+        with DH5File(output, mode="r") as merged:
+            operations_group = get_operations_group(merged._file)
 
-                assert operations_group is not None, (
-                    "Output file should have Operations group"
-                )
+            assert operations_group is not None, (
+                "Output file should have Operations group"
+            )
 
-                # Check that there's at least a merge operation
-                operation_names = list(operations_group.keys())
-                merge_operations = [
-                    name for name in operation_names if "merge" in name.lower()
-                ]
+            # Check that there's at least a merge operation
+            operation_names = list(operations_group.keys())
+            merge_operations = [
+                name for name in operation_names if "merge" in name.lower()
+            ]
 
-                assert len(merge_operations) > 0, (
-                    "Should have at least one merge operation"
-                )
+            assert len(merge_operations) > 0, "Should have at least one merge operation"
 
-                # Get the merge operation
-                merge_op = operations_group[merge_operations[0]]
+            # Get the merge operation
+            merge_op = operations_group[merge_operations[0]]
 
-                # Check attributes
-                assert "Tool" in merge_op.attrs, (
-                    "Merge operation should have Tool attribute"
-                )
-                assert "dh5merge" in merge_op.attrs["Tool"], (
-                    "Tool should mention dh5merge"
-                )
+            # Check attributes
+            assert "Tool" in merge_op.attrs, (
+                "Merge operation should have Tool attribute"
+            )
+            assert "dh5merge" in merge_op.attrs["Tool"], "Tool should mention dh5merge"
 
-                if "MergedFiles" in merge_op.attrs:
-                    merged_files = merge_op.attrs["MergedFiles"]
-                    print(f"  Merged files: {list(merged_files)}")
+            if "MergedFiles" in merge_op.attrs:
+                merged_files = merge_op.attrs["MergedFiles"]
+                print(f"  Merged files: {list(merged_files)}")
 
-                if "NumberOfFiles" in merge_op.attrs:
-                    num_files = merge_op.attrs["NumberOfFiles"]
-                    assert num_files == 2, (
-                        f"Should have merged 2 files, got {num_files}"
-                    )
-                    print(f"  Number of files: {num_files}")
-
-            print("✓ Test passed! Merge operation recorded successfully.")
-            return True
-
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return False
+            if "NumberOfFiles" in merge_op.attrs:
+                num_files = merge_op.attrs["NumberOfFiles"]
+                assert num_files == 2, f"Should have merged 2 files, got {num_files}"
+                print(f"  Number of files: {num_files}")
 
 
 def test_merge_with_missing_ev02():
@@ -254,67 +237,19 @@ def test_merge_with_missing_ev02():
             add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Merge files
-        try:
-            merge_dh5_files([file1, file2, file3], output, overwrite=True)
+        merge_dh5_files([file1, file2, file3], output, overwrite=True)
 
-            # Verify the merged EV02 (should have 10 + 8 = 18 events)
-            with DH5File(output, mode="r") as merged:
-                merged_events = get_event_triggers_from_file(merged.file)
+        # Verify the merged EV02 (should have 10 + 8 = 18 events)
+        with DH5File(output, mode="r") as merged:
+            merged_events = get_event_triggers_from_file(merged._file)
 
-                assert merged_events is not None, "Merged file should have EV02"
-                assert len(merged_events) == 18, (
-                    f"Expected 18 events, got {len(merged_events)}"
-                )
-
-                # Check first event from file 1
-                assert merged_events[0]["time"] == 0
-
-                # Check first event from file 3 (file 2 had no EV02)
-                assert merged_events[10]["time"] == 20_000_000
-
-            print(
-                "✓ Test passed! Merged EV02 correctly from files with mixed presence."
+            assert merged_events is not None, "Merged file should have EV02"
+            assert len(merged_events) == 18, (
+                f"Expected 18 events, got {len(merged_events)}"
             )
-            print("  - File 1: 10 events")
-            print("  - File 2: No EV02")
-            print("  - File 3: 8 events")
-            print("  - Merged: 18 events")
-            return True
 
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            import traceback
+            # Check first event from file 1
+            assert merged_events[0]["time"] == 0
 
-            traceback.print_exc()
-            return False
-
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("Test 1: Merging EV02 from all files")
-    print("=" * 60)
-    success1 = test_merge_event_triggers()
-
-    print()
-    print("=" * 60)
-    print("Test 2: Merge operation is recorded")
-    print("=" * 60)
-    success2 = test_merge_operation_recorded()
-
-    print()
-    print("=" * 60)
-    print("Test 3: Merging with some files missing EV02")
-    print("=" * 60)
-    success3 = test_merge_with_missing_ev02()
-
-    print()
-    if success1 and success2 and success3:
-        print("=" * 60)
-        print("✓ All tests passed!")
-        print("=" * 60)
-        sys.exit(0)
-    else:
-        print("=" * 60)
-        print("✗ Some tests failed")
-        print("=" * 60)
-        sys.exit(1)
+            # Check first event from file 3 (file 2 had no EV02)
+            assert merged_events[10]["time"] == 20_000_000

@@ -95,49 +95,34 @@ def test_merge_trialmaps():
             add_trialmap_to_file(dh5._file, trialmap)
 
         # Merge files
-        try:
-            merge_dh5_files([file1, file2, file3], output, overwrite=True)
+        merge_dh5_files([file1, file2, file3], output, overwrite=True)
 
-            # Verify the merged TRIALMAP
-            with DH5File(output, mode="r") as merged:
-                merged_trialmap = merged.get_trialmap()
+        # Verify the merged TRIALMAP
+        with DH5File(output, mode="r") as merged:
+            merged_trialmap = merged.get_trialmap()
 
-                assert merged_trialmap is not None, "Merged file should have TRIALMAP"
+            assert merged_trialmap is not None, "Merged file should have TRIALMAP"
 
-                total_trials = sum(n_trials)
-                assert len(merged_trialmap) == total_trials, (
-                    f"Expected {total_trials} trials, got {len(merged_trialmap)}"
-                )
+            total_trials = sum(n_trials)
+            assert len(merged_trialmap) == total_trials, (
+                f"Expected {total_trials} trials, got {len(merged_trialmap)}"
+            )
 
-                # Check first trial from file 1
-                assert merged_trialmap[0].TrialNo == 1
-                assert merged_trialmap[0].StartTime == 0
+            # Check first trial from file 1
+            assert merged_trialmap.trial_numbers[0] == 1
+            assert merged_trialmap.trial_type_numbers[0] == 1
 
-                # Check first trial from file 2
-                assert merged_trialmap[n_trials[0]].TrialNo == 11
-                assert merged_trialmap[n_trials[0]].StartTime == 10_000_000_000
+            # Check first trial from file 2
+            assert merged_trialmap.trial_numbers[n_trials[0]] == 11
+            assert merged_trialmap.start_time_nanoseconds[n_trials[0]] == 10_000_000_000
 
-                # Check first trial from file 3
-                file3_start_idx = n_trials[0] + n_trials[1]
-                assert merged_trialmap[file3_start_idx].TrialNo == 26
-                assert merged_trialmap[file3_start_idx].StartTime == 25_000_000_000
+            # Check first trial from file 3
+            file3_start_idx = n_trials[0] + n_trials[1]
+            assert merged_trialmap[file3_start_idx].TrialNo == 26
+            assert merged_trialmap[file3_start_idx].StartTime == 25_000_000_000
 
-                # Check last trial
-                assert merged_trialmap[-1].TrialNo == 26 + n_trials[2] - 1
-
-            print(f"✓ Test passed! TRIALMAPs merged successfully.")
-            print(f"  - File 1: {n_trials[0]} trials")
-            print(f"  - File 2: {n_trials[1]} trials")
-            print(f"  - File 3: {n_trials[2]} trials")
-            print(f"  - Merged: {total_trials} trials")
-            return True
-
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return False
+            # Check last trial
+            assert merged_trialmap[-1].TrialNo == 26 + n_trials[2] - 1
 
 
 def test_merge_with_missing_trialmaps():
