@@ -18,6 +18,11 @@ pythonpath = ["."]
 [tool.black]
 line-length = 96
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
 [project.scripts]
 dh5tree = "dh5cli.dh5tree:main"
 dh5merge = "dh5cli.dh5merge:main"

@@ -10,7 +10,9 @@ import sys
 import logging
 from pathlib import Path
 import numpy as np
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
+import tkinter as tk
+from tkinter import filedialog, messagebox
 
 from dh5io.dh5file import DH5File
 from dh5io.create import create_dh_file
@@ -174,8 +176,10 @@ def merge_cont_block(
     sample_period = first_cont.sample_period
     calibration = first_cont.calibration
     channels = first_cont.channels
-    name = first_cont.name
-    comment = first_cont.comment
+
+    # Handle optional attributes safely
+    name = first_cont._group.attrs.get("Name", None)
+    comment = first_cont._group.attrs.get("Comment", "")
     signal_type = first_cont.signal_type
 
     # Concatenate data and merge indices
@@ -313,13 +317,128 @@ def concatenate_cont_data(cont_blocks: List[Cont]) -> tuple[np.ndarray, np.ndarr
     return merged_data, merged_index
 
 
+def select_files_gui() -> tuple[List[Path], Path, bool]:
+    """
+    Open a GUI to select input files, output file, and merge options.
+
+    Returns
+    -------
+    tuple[List[Path], Path, bool]
+        A tuple of (input_files, output_file, overwrite)
+        Returns ([], None, False) if user cancels
+    """
+    # Hide the root window
+    root = tk.Tk()
+    root.withdraw()
+
+    # Select input files
+    input_files_str = filedialog.askopenfilenames(
+        title="Select DH5 files to merge (at least 2)",
+        filetypes=[("DH5 files", "*.dh5"), ("All files", "*.*")],
+    )
+
+    if not input_files_str or len(input_files_str) < 2:
+        messagebox.showwarning(
+            "Invalid Selection", "Please select at least 2 DH5 files to merge."
+        )
+        root.destroy()
+        return [], None, False
+
+    input_files = [Path(f) for f in input_files_str]
+
+    # Select output file
+    output_file_str = filedialog.asksaveasfilename(
+        title="Select output file location",
+        defaultextension=".dh5",
+        filetypes=[("DH5 files", "*.dh5"), ("All files", "*.*")],
+    )
+
+    if not output_file_str:
+        messagebox.showinfo("Cancelled", "Merge operation cancelled.")
+        root.destroy()
+        return [], None, False
+
+    output_file = Path(output_file_str)
+
+    # Check if output file exists and ask for overwrite confirmation
+    overwrite = False
+    if output_file.exists():
+        result = messagebox.askyesno(
+            "File Exists",
+            f"The file {output_file.name} already exists.\nDo you want to overwrite it?",
+        )
+        if not result:
+            messagebox.showinfo("Cancelled", "Merge operation cancelled.")
+            root.destroy()
+            return [], None, False
+        overwrite = True
+
+    root.destroy()
+    return input_files, output_file, overwrite
+
+
 def main():
     """Main entry point for the dh5merge CLI tool."""
-    parser = argparse.ArgumentParser(
-        description="Merge multiple DH5 files containing the same channels recorded at different times.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+    # Check if running without arguments (GUI mode)
+    if len(sys.argv) == 1:
+        # GUI mode
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+        input_files, output_file, overwrite = select_files_gui()
+
+        if not input_files or output_file is None:
+            # User cancelled
+            sys.exit(0)
+
+        try:
+            # Show message that merge is starting
+            print(f"Merging {len(input_files)} files...")
+            for i, f in enumerate(input_files, 1):
+                print(f"  {i}. {f.name}")
+            print(f"Output: {output_file}")
+            print()
+
+            # Perform merge
+            merge_dh5_files(
+                input_files=input_files,
+                output_file=output_file,
+                cont_ids=None,
+                overwrite=overwrite,
+            )
+
+            print(
+                f"\n✓ Successfully merged {len(input_files)} files into {output_file}"
+            )
+
+            # Show success message box
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showinfo(
+                "Success",
+                f"Successfully merged {len(input_files)} files into:\n{output_file.name}",
+            )
+            root.destroy()
+
+        except Exception as e:
+            logger.error(f"Error merging files: {e}")
+
+            # Show error message box
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Error", f"Error merging files:\n{str(e)}")
+            root.destroy()
+
+            sys.exit(1)
+    else:
+        # CLI mode with arguments
+        parser = argparse.ArgumentParser(
+            description="Merge multiple DH5 files containing the same channels recorded at different times.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
 Examples:
+  # Open GUI file selector
+  dh5merge
+  
   # Merge all common CONT blocks from multiple files
   dh5merge file1.dh5 file2.dh5 file3.dh5 -o merged.dh5
   
@@ -331,59 +450,63 @@ Examples:
   
   # Enable verbose logging
   dh5merge file1.dh5 file2.dh5 -o merged.dh5 -v
-        """,
-    )
-
-    parser.add_argument(
-        "input_files",
-        type=str,
-        nargs="+",
-        help="Input DH5 files to merge (at least 2 required)",
-    )
-
-    parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Output DH5 file path"
-    )
-
-    parser.add_argument(
-        "--cont-ids",
-        type=int,
-        nargs="+",
-        help="CONT block IDs to merge (if not specified, all common blocks will be merged)",
-    )
-
-    parser.add_argument(
-        "--overwrite", action="store_true", help="Overwrite output file if it exists"
-    )
-
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose logging"
-    )
-
-    args = parser.parse_args()
-
-    # Setup logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
-
-    try:
-        # Convert input file paths
-        input_files = [Path(f) for f in args.input_files]
-        output_file = Path(args.output)
-
-        # Perform merge
-        merge_dh5_files(
-            input_files=input_files,
-            output_file=output_file,
-            cont_ids=args.cont_ids,
-            overwrite=args.overwrite,
+            """,
         )
 
-        print(f"\n✓ Successfully merged {len(input_files)} files into {output_file}")
+        parser.add_argument(
+            "input_files",
+            type=str,
+            nargs="+",
+            help="Input DH5 files to merge (at least 2 required)",
+        )
 
-    except Exception as e:
-        logger.error(f"Error merging files: {e}")
-        sys.exit(1)
+        parser.add_argument(
+            "-o", "--output", type=str, required=True, help="Output DH5 file path"
+        )
+
+        parser.add_argument(
+            "--cont-ids",
+            type=int,
+            nargs="+",
+            help="CONT block IDs to merge (if not specified, all common blocks will be merged)",
+        )
+
+        parser.add_argument(
+            "--overwrite",
+            action="store_true",
+            help="Overwrite output file if it exists",
+        )
+
+        parser.add_argument(
+            "-v", "--verbose", action="store_true", help="Enable verbose logging"
+        )
+
+        args = parser.parse_args()
+
+        # Setup logging
+        log_level = logging.DEBUG if args.verbose else logging.INFO
+        logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+
+        try:
+            # Convert input file paths
+            input_files = [Path(f) for f in args.input_files]
+            output_file = Path(args.output)
+
+            # Perform merge
+            merge_dh5_files(
+                input_files=input_files,
+                output_file=output_file,
+                cont_ids=args.cont_ids,
+                overwrite=args.overwrite,
+            )
+
+            print(
+                f"\n✓ Successfully merged {len(input_files)} files into {output_file}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error merging files: {e}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

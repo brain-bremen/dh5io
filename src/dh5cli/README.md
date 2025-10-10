@@ -16,8 +16,14 @@ Merge multiple DH5 files containing the same channels (CONT blocks) recorded at 
 
 #### Basic Usage
 
-Merge all common CONT blocks from multiple files:
+**GUI Mode** (no arguments):
+```bash
+dh5merge
+```
+Running without arguments opens a graphical file selector to choose input files and output location.
 
+**Command-line Mode**:
+Merge all common CONT blocks from multiple files:
 ```bash
 dh5merge file1.dh5 file2.dh5 file3.dh5 -o merged.dh5
 ```
