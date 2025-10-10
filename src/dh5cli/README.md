@@ -12,7 +12,8 @@ dh5tree file.dh5
 
 ### dh5merge
 
-Merge multiple DH5 files containing the same channels (CONT blocks) recorded at different non-overlapping times.
+Merge multiple DH5 files containing the same channels (CONT blocks) recorded at different
+non-overlapping times. `dh5merge` is powered by Claude Sonnet 4.5.
 
 #### Basic Usage
 
@@ -67,7 +68,23 @@ The `dh5merge` tool:
    - `time`: timestamp of first sample in nanoseconds
    - `offset`: sample offset within the DATA array
 
-4. **Preserves metadata**: Copies attributes like calibration, channel configuration, and signal type from the first file
+4. **Merges TRIALMAPs**: Concatenates TRIALMAP datasets from all input files, preserving trial information including:
+   - Trial numbers
+   - Stimulus numbers
+   - Outcome codes
+   - Start/end timestamps
+
+5. **Merges EV02 (Event Triggers)**: Concatenates event trigger datasets from all input files, preserving:
+   - Event timestamps (nanoseconds)
+   - Event codes
+
+6. **Records merge operation**: Adds a processing history entry to the output file documenting:
+   - The merge operation
+   - Source file names
+   - Number of files merged
+   - Timestamp and tool version
+
+7. **Preserves metadata**: Copies attributes like calibration, channel configuration, and signal type from the first file
 
 #### Requirements
 

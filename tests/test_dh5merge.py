@@ -328,3 +328,129 @@ def test_determine_cont_blocks_to_merge(temp_dir):
     finally:
         for dh5_file in dh5_files:
             dh5_file.file.close()
+
+
+def test_merge_trialmaps(temp_dir):
+    """Test that TRIALMAPs are merged correctly."""
+    from dh5io.trialmap import add_trialmap_to_file
+    from dhspec.trialmap import TRIALMAP_DATASET_DTYPE
+
+    file1 = temp_dir / "file1.dh5"
+    file2 = temp_dir / "file2.dh5"
+    output = temp_dir / "merged.dh5"
+
+    # Create trialmaps
+    trialmap1 = np.recarray(5, dtype=TRIALMAP_DATASET_DTYPE)
+    for i in range(5):
+        trialmap1[i].TrialNo = i + 1
+        trialmap1[i].StimNo = 1
+        trialmap1[i].Outcome = 1
+        trialmap1[i].StartTime = i * 1000000
+        trialmap1[i].EndTime = (i + 1) * 1000000
+
+    trialmap2 = np.recarray(3, dtype=TRIALMAP_DATASET_DTYPE)
+    for i in range(3):
+        trialmap2[i].TrialNo = i + 6
+        trialmap2[i].StimNo = 2
+        trialmap2[i].Outcome = 0
+        trialmap2[i].StartTime = (i + 5) * 1000000
+        trialmap2[i].EndTime = (i + 6) * 1000000
+
+    # Create files with TRIALMAPs
+    with create_dh_file(file1, overwrite=True) as dh5:
+        data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
+        index = create_empty_index_array(1)
+        index[0] = (0, 0)
+        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5.file, trialmap1)
+
+    with create_dh_file(file2, overwrite=True) as dh5:
+        data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
+        index = create_empty_index_array(1)
+        index[0] = (5000000, 0)
+        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5.file, trialmap2)
+
+    # Merge
+    merge_dh5_files([file1, file2], output)
+
+    # Verify merged TRIALMAP
+    with DH5File(output, mode="r") as merged:
+        trialmap = merged.get_trialmap()
+        assert trialmap is not None
+        assert len(trialmap) == 8  # 5 + 3
+
+        # Check first trial from file 1
+        assert trialmap[0].TrialNo == 1
+        assert trialmap[0].StimNo == 1
+
+        # Check first trial from file 2
+        assert trialmap[5].TrialNo == 6
+        assert trialmap[5].StimNo == 2
+
+
+def test_merge_with_missing_trialmaps(temp_dir):
+    """Test merging when some files don't have TRIALMAPs."""
+    from dh5io.trialmap import add_trialmap_to_file
+    from dhspec.trialmap import TRIALMAP_DATASET_DTYPE
+
+    file1 = temp_dir / "file1.dh5"
+    file2 = temp_dir / "file2.dh5"
+    file3 = temp_dir / "file3.dh5"
+    output = temp_dir / "merged.dh5"
+
+    # Create trialmap for file 1
+    trialmap1 = np.recarray(3, dtype=TRIALMAP_DATASET_DTYPE)
+    for i in range(3):
+        trialmap1[i].TrialNo = i + 1
+        trialmap1[i].StimNo = 1
+        trialmap1[i].Outcome = 1
+        trialmap1[i].StartTime = i * 1000000
+        trialmap1[i].EndTime = (i + 1) * 1000000
+
+    # File 1 with TRIALMAP
+    with create_dh_file(file1, overwrite=True) as dh5:
+        data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
+        index = create_empty_index_array(1)
+        index[0] = (0, 0)
+        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5.file, trialmap1)
+
+    # File 2 WITHOUT TRIALMAP
+    with create_dh_file(file2, overwrite=True) as dh5:
+        data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
+        index = create_empty_index_array(1)
+        index[0] = (3000000, 0)
+        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        # No trialmap
+
+    # File 3 with TRIALMAP
+    trialmap3 = np.recarray(2, dtype=TRIALMAP_DATASET_DTYPE)
+    for i in range(2):
+        trialmap3[i].TrialNo = i + 4
+        trialmap3[i].StimNo = 2
+        trialmap3[i].Outcome = 0
+        trialmap3[i].StartTime = (i + 3) * 1000000
+        trialmap3[i].EndTime = (i + 4) * 1000000
+
+    with create_dh_file(file3, overwrite=True) as dh5:
+        data = np.random.randint(-100, 100, size=(50, 2), dtype=np.int16)
+        index = create_empty_index_array(1)
+        index[0] = (5000000, 0)
+        create_cont_group_from_data_in_file(dh5.file, 0, data, index, np.int32(1000))
+        add_trialmap_to_file(dh5.file, trialmap3)
+
+    # Merge
+    merge_dh5_files([file1, file2, file3], output)
+
+    # Verify merged TRIALMAP (should have 3 + 2 = 5 trials, skipping file2)
+    with DH5File(output, mode="r") as merged:
+        trialmap = merged.get_trialmap()
+        assert trialmap is not None
+        assert len(trialmap) == 5  # 3 from file1 + 2 from file3
+
+        # Check trials are in correct order
+        assert trialmap[0].TrialNo == 1
+        assert trialmap[2].TrialNo == 3
+        assert trialmap[3].TrialNo == 4
+        assert trialmap[4].TrialNo == 5

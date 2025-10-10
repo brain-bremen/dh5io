@@ -13,6 +13,7 @@ import numpy as np
 from typing import List, Optional, Set, Tuple
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import h5py
 
 from dh5io.dh5file import DH5File
 from dh5io.create import create_dh_file
@@ -20,6 +21,15 @@ from dh5io.cont import (
     create_cont_group_from_data_in_file,
     Cont,
 )
+from dh5io.trialmap import (
+    get_trialmap_from_file,
+    add_trialmap_to_file,
+)
+from dh5io.event_triggers import (
+    get_event_triggers_from_file,
+    add_event_triggers_to_file,
+)
+from dh5io.operations import add_operation_to_file
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +89,18 @@ def merge_dh5_files(
             for cont_id in sorted(cont_blocks_to_merge):
                 logger.info(f"Merging CONT{cont_id}...")
                 merge_cont_block(input_dh5_files, output_dh5, cont_id)
+
+            # Merge TRIALMAP if present
+            logger.info("Merging TRIALMAP...")
+            merge_trialmaps(input_dh5_files, output_dh5)
+
+            # Merge EV02 (event triggers) if present
+            logger.info("Merging EV02 (event triggers)...")
+            merge_event_triggers(input_dh5_files, output_dh5)
+
+            # Add operation record about the merge
+            logger.info("Adding merge operation to file...")
+            add_merge_operation(output_dh5, input_files)
 
             logger.info(
                 f"Successfully merged {len(input_files)} files into {output_file}"
@@ -198,6 +220,136 @@ def merge_cont_block(
         comment=comment,
         signal_type=signal_type,
     )
+
+
+def merge_trialmaps(input_files: List[DH5File], output_file: DH5File) -> None:
+    """
+    Merge TRIALMAP datasets from multiple files.
+
+    TRIALMAPs are concatenated in order. If files have no TRIALMAP,
+    this function does nothing.
+
+    Parameters
+    ----------
+    input_files : List[DH5File]
+        List of input DH5 files
+    output_file : DH5File
+        Output DH5 file
+    """
+    # Collect trialmaps from all files
+    trialmaps = []
+    for i, dh5_file in enumerate(input_files):
+        trialmap = get_trialmap_from_file(dh5_file.file)
+        if trialmap is not None:
+            trialmaps.append(trialmap)
+            logger.debug(f"File {i}: Found TRIALMAP with {len(trialmap)} trials")
+        else:
+            logger.debug(f"File {i}: No TRIALMAP found")
+
+    # If no trialmaps found, nothing to merge
+    if not trialmaps:
+        logger.info("No TRIALMAPs found in input files")
+        return
+
+    # Concatenate all trialmaps
+    merged_trialmap_array = np.concatenate(trialmaps)
+
+    # Convert to recarray if needed
+    if not isinstance(merged_trialmap_array, np.recarray):
+        merged_trialmap = np.rec.array(merged_trialmap_array)
+    else:
+        merged_trialmap = merged_trialmap_array
+
+    logger.info(
+        f"Merged {len(trialmaps)} TRIALMAPs ({len(merged_trialmap)} total trials)"
+    )
+
+    # Add to output file
+    add_trialmap_to_file(output_file.file, merged_trialmap, replace=True)
+
+
+def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> None:
+    """
+    Merge EV02 (event triggers) datasets from multiple files.
+
+    Event triggers are concatenated in order. If files have no EV02,
+    this function does nothing.
+
+    Parameters
+    ----------
+    input_files : List[DH5File]
+        List of input DH5 files
+    output_file : DH5File
+        Output DH5 file
+    """
+    # Collect event triggers from all files
+    all_event_triggers = []
+    for i, dh5_file in enumerate(input_files):
+        events = get_event_triggers_from_file(dh5_file.file)
+        if events is not None:
+            all_event_triggers.append(events)
+            logger.debug(f"File {i}: Found EV02 with {len(events)} events")
+        else:
+            logger.debug(f"File {i}: No EV02 found")
+
+    # If no event triggers found, nothing to merge
+    if not all_event_triggers:
+        logger.info("No EV02 datasets found in input files")
+        return
+
+    # Concatenate all event triggers
+    merged_events = np.concatenate(all_event_triggers)
+
+    logger.info(
+        f"Merged {len(all_event_triggers)} EV02 datasets ({len(merged_events)} total events)"
+    )
+
+    # Extract timestamps and event codes
+    timestamps = merged_events["time"]
+    event_codes = merged_events["event"]
+
+    # Add to output file
+    add_event_triggers_to_file(output_file.file, timestamps, event_codes)
+
+
+def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
+    """
+    Add an operation record to the output file documenting the merge.
+
+    Parameters
+    ----------
+    output_file : DH5File
+        Output DH5 file
+    input_files : List[Path]
+        List of input file paths that were merged
+    """
+    # Create a description of the merge operation
+    input_filenames = [f.name for f in input_files]
+
+    # Add operation to file
+    add_operation_to_file(
+        output_file.file,
+        new_operation_group_name="merge_files",
+        tool="dh5merge (dh5io)",
+    )
+
+    # Get the last operation group to add custom attributes
+    from dh5io.operations import get_operations_group, get_last_operation_index
+
+    operations_group = get_operations_group(output_file.file)
+    if operations_group is not None:
+        last_index = get_last_operation_index(output_file.file)
+        if last_index is not None:
+            operation_group_name = f"{last_index:03}_merge_files"
+            operation_group = operations_group[operation_group_name]
+
+            # Add custom attributes about the merge
+            operation_group.attrs["MergedFiles"] = np.array(
+                input_filenames, dtype=h5py.string_dtype(encoding="utf-8")
+            )
+            operation_group.attrs["NumberOfFiles"] = len(input_files)
+
+            logger.debug(f"Added merge operation with {len(input_files)} source files")
 
 
 def validate_cont_blocks_compatible(cont_blocks: List[Cont], cont_id: int) -> None:
