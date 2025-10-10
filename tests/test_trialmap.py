@@ -8,6 +8,7 @@ from dh5io.trialmap import (
     get_trialmap_from_file,
     validate_trialmap,
     validate_trialmap_dataset,
+    Trialmap,
 )
 
 
@@ -101,3 +102,49 @@ def test_validate_trialmap_dataset_invalid(mock_h5_file: h5py.File):
     )
     with pytest.raises(DH5Error):
         validate_trialmap_dataset(invalid_trialmap)
+
+
+# tests for Trialmap class
+
+
+def test_trialmap_initialization(valid_trialmap):
+    trialmap = Trialmap(valid_trialmap)
+    assert isinstance(trialmap, Trialmap)
+    assert trialmap.recarray.dtype == TRIALMAP_DATASET_DTYPE
+    assert len(trialmap.recarray) == len(valid_trialmap)
+    assert len(trialmap) == len(valid_trialmap)
+
+
+def test_trialmap_invalid_dtype():
+    invalid_trialmap = np.rec.array(
+        [(1, 101)],
+        dtype=[("InvalidField", "int32"), ("StimNo", "int32")],
+    )
+    with pytest.raises(DH5Error, match="Invalid trialmap dtype"):
+        Trialmap(invalid_trialmap)
+
+
+def test_trialmap_properties(valid_trialmap):
+    trialmap = Trialmap(valid_trialmap)
+    assert np.array_equal(trialmap.recarray.TrialNo, valid_trialmap.TrialNo)
+    assert np.array_equal(trialmap.recarray.StimNo, valid_trialmap.StimNo)
+    assert np.array_equal(trialmap.recarray.Outcome, valid_trialmap.Outcome)
+    assert np.array_equal(trialmap.recarray.StartTime, valid_trialmap.StartTime)
+    assert np.array_equal(trialmap.recarray.EndTime, valid_trialmap.EndTime)
+
+    # Check float conversion
+    assert np.allclose(
+        trialmap.start_time_float_seconds,
+        valid_trialmap.StartTime.astype(np.float64) / 1e9,
+    )
+    assert np.allclose(
+        trialmap.end_time_float_seconds, valid_trialmap.EndTime.astype(np.float64) / 1e9
+    )
+
+    # check properties
+    assert np.array_equal(trialmap.trial_numbers, valid_trialmap.TrialNo)
+    assert np.array_equal(trialmap.trial_type_numbers, valid_trialmap.StimNo)
+    assert np.array_equal(trialmap.trial_outcomes_integer, valid_trialmap.Outcome)
+    assert all(
+        outcome in trialmap.trial_outcomes_as_enum for outcome in valid_trialmap.Outcome
+    )

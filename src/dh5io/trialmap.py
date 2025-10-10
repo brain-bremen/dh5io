@@ -40,7 +40,9 @@ altogether or, better, filled with a sequence of ascending numbers.
 - **StimNo** is so-called Stimulus Number. Trials which have the same stimulus
 numbers can be usually grouped together for analysis. So, StimNo
 contains some encoded information about the type of trial and, possibly,
-some other conditions.
+some other conditions. Note: The Stimulus Number in VStim has been renamed
+to Trial Type Number. For backwards compatibility, the DH5 files still contain
+StimNo.
 
 - **Outcome** – behavioral data. Outcome code specifies the type of behavior
 observed and discriminated from the experimental subject. Typically,
@@ -53,10 +55,11 @@ and ending of each trial. All timestamps throughout a DAQ-HDF file have
 the same base value, so timestamps from `CONT` and `SPIKE` blocks as well as
 the `TRIALMAP`, are comparable with each other. It is typically needed,
 based on the timestamps from the TRIALMAP, to determine location of the
-corresponding piece of signal within `CONT` or `SPIKE` blocks.
+corresponding piece of signal  within `CONT` or `SPIKE` blocks.
 
 """
 
+from enum import IntEnum
 import logging
 import h5py
 from dh5io.errors import DH5Error
@@ -64,6 +67,19 @@ import numpy
 from dhspec.trialmap import TRIALMAP_DATASET_DTYPE, TRIALMAP_DATASET_NAME
 
 logger = logging.getLogger(__name__)
+
+
+class TrialOutcome(IntEnum):
+    NotStarted = 0
+    Hit = 1
+    WrongResponse = 2
+    EarlyHit = 3
+    EarlyWrongResponse = 4
+    Early = 5
+    Late = 6
+    EyeErr = 7
+    InexpectedStartSignal = 8
+    WrongStartSignal = 9
 
 
 def add_trialmap_to_file(
@@ -108,3 +124,78 @@ def validate_trialmap_dataset(trialmap: h5py.Dataset) -> None:
         raise DH5Error(
             f"TRIALMAP dataset is not a named data type with fields 'TrialNo', 'StimNo', 'Outcome', 'StartTime', 'EndTime': {trialmap.dtype}"
         )
+
+
+class Trialmap:
+    """Trialmap class for DAQ-HDF files.
+    Provides access to trialmap data in a structured way.
+    Attributes:
+        recarray (numpy.recarray): The trialmap data as a structured array.
+    Properties:
+        trial_numbers (numpy.ndarray): Array of trial numbers.
+        trial_type_numbers (numpy.ndarray): Array of trial type numbers.
+        trial_outcomes_integer (numpy.ndarray): Array of trial outcomes as integers.
+        trial_outcomes_as_enum (list[TrialOutcome]): List of trial outcomes as TrialOutcome enums.
+        start_time_nanoseconds (numpy.ndarray): Start time of each trial in nanoseconds.
+        start_time_float_seconds (numpy.ndarray): Start time of each trial in seconds as float.
+        end_time_nanoseconds (numpy.ndarray): End time of each trial in nanoseconds.
+        end_time_float_seconds (numpy.ndarray): End time of each trial in seconds as float.
+
+    """
+
+    recarray: numpy.recarray
+
+    def __init__(self, trialmap: numpy.recarray):
+        if trialmap.dtype != TRIALMAP_DATASET_DTYPE:
+            raise DH5Error(
+                f"Invalid trialmap dtype: {trialmap.dtype}. Expected {TRIALMAP_DATASET_DTYPE}"
+            )
+        self.recarray = trialmap
+
+    def __len__(self):
+        return len(self.recarray)
+
+    def __str__(self):
+        return f"""Trialmap with {len(self)} trials
+    TrialNo, TrialTypeNo, Outcome, StartTmeNS, EndTimeNs
+{self.recarray}"""
+
+    @property
+    def trial_type_numbers(self) -> numpy.ndarray:
+        """Return trial type numbers"""
+        return self.recarray.StimNo
+
+    @property
+    def trial_numbers(self) -> numpy.ndarray:
+        """Trial indices"""
+        return self.recarray.TrialNo
+
+    @property
+    def trial_outcomes_integer(self) -> numpy.ndarray:
+        """Trial outcomes as integers"""
+        return self.recarray.Outcome
+
+    @property
+    def trial_outcomes_as_enum(self) -> list[TrialOutcome]:
+        """Return trial outcomes as TrialOutcome enum"""
+        return [TrialOutcome(outcome) for outcome in self.recarray.Outcome]
+
+    @property
+    def start_time_nanoseconds(self) -> numpy.ndarray:
+        """Start time of each trial in nanoseconds"""
+        return self.recarray.StartTime
+
+    @property
+    def start_time_float_seconds(self) -> numpy.ndarray:
+        """Start time of each trial in seconds as float"""
+        return self.recarray.StartTime.astype(numpy.float64) / 1e9
+
+    @property
+    def end_time_nanoseconds(self) -> numpy.ndarray:
+        """End time of each trial in nanoseconds"""
+        return self.recarray.EndTime
+
+    @property
+    def end_time_float_seconds(self) -> numpy.ndarray:
+        """End time of each trial in seconds as float"""
+        return self.recarray.EndTime.astype(numpy.float64) / 1e9

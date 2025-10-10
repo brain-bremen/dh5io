@@ -206,8 +206,8 @@ class DH5RawIO(BaseRawIO):
             raise ValueError("Trialmap not yet parsed")
 
         contId: str = self.header.signal_streams[stream_index]["id"]
-        data: h5py.Dataset = self._file.file[contId]["DATA"]
-        index: h5py.Dataset = self._file.file[contId]["INDEX"]
+        data: h5py.Dataset = self._file._file[contId]["DATA"]
+        index: h5py.Dataset = self._file._file[contId]["INDEX"]
 
         # FIXME: clarify how a neo segment maps to a trial / an area within a CONT block
         # Segments are the trials in the trialmap. We need to find the indices in the data array
@@ -236,7 +236,7 @@ class DH5RawIO(BaseRawIO):
             raise ValueError("Header not yet parsed")
 
         contId: str = self.header.signal_streams[stream_index]["id"]
-        index: h5py.Dataset = self._file.file[contId]["INDEX"]
+        index: h5py.Dataset = self._file._file[contId]["INDEX"]
         return index[seg_index]["time"] / 1e9
 
     def _get_analogsignal_chunk(
@@ -262,9 +262,9 @@ class DH5RawIO(BaseRawIO):
         contId: str = self.header.signal_streams[stream_index]["id"]
 
         if channel_indexes is None:
-            channel_indexes = numpy.arange(self._file.file[contId]["DATA"].shape[1])
+            channel_indexes = numpy.arange(self._file._file[contId]["DATA"].shape[1])
 
-        return numpy.array(self._file.file[contId][i_start:i_stop, channel_indexes])
+        return numpy.array(self._file._file[contId][i_start:i_stop, channel_indexes])
 
     # spiketrain and unit zone
     def _spike_count(

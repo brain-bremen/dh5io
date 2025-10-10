@@ -1,12 +1,31 @@
 [project]
-name = "dh-format"
-version = "0.2.0-dev"
+name = "dh5io"
+version = "0.2.1"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
-authors = []
+authors = [
+    { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" } 
+]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["numpy", "h5py"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = [
+    "data format",
+    "electrophysiology",
+    "hdf5",
+    "daq",
+]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -33,9 +52,9 @@ dev = [
     "ipython>=9.0.2",
     "mypy>=1.15.0",
     "ruff>=0.11.2",
-    "dh-format[all]",
+    "dh5io[all]",
 ]
 dhzio = ["zarr>=3.0.6"]
-all = ["dh-format[test]", "dh-format[neo]", "dh-format[dhzio]"]
+all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]"]
 neo = ["neo"]
-test = ["pytest", "pytest-cov", "dh-format[neo]", "dh-format[dhzio]"]
+test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]"]

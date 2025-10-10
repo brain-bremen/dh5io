@@ -28,7 +28,7 @@ stored in a group named `CONTn`, where n is the identifier number of each
 
 `CONTn` group **must** have the following **attributes**:
 
-- `Channels` (`struct` array\[N\]):
+- `Channels` (`struct` array[N]):
 
     | Offset | Name | Type      |
     |-----|------------------|-------|
@@ -43,13 +43,13 @@ stored in a group named `CONTn`, where n is the identifier number of each
 
 *Optional attribute*:
 
-- `Calibration` (`double` array\[N\])
+- `Calibration` (`double` array[N])
 
 `CONTn` group **must** have the following **datasets**:
 
-- `DATA` (`int16` array\[M,N\])
+- `DATA` (`int16` array[M,N])
 
-- `INDEX` (`struct` array\[R\]):
+- `INDEX` (`struct` array[R]):
 
     | Offset    | Name       | Type  |
     |-----|--------|-------|
@@ -74,7 +74,7 @@ numbers, they may also belong to different A/D boards in the recording
 setup. This information is normally not needed during the data
 processing, but may be needed for documentation of the experiment.
 
-- `BoardChanNo` – this is the number of channel within the A/D board from
+- `BoardChanNo` - this is the number of channel within the A/D board from
 which it was acquired.
 
 - `ADCBitWidth` – number of bits in the A/D converter. Note, however, that
@@ -147,21 +147,42 @@ import numpy.typing as npt
 logger = logging.getLogger(__name__)
 
 
-
-class Cont():
+class Cont:
     """Abstraction for the HDF5 Group containing continuous signal data"""
+
     def __init__(self, group: h5py.Group):
         self._group = group
 
+    def __str__(self):
+        # show a tree view with all the properties below
+        return f"""    {self._group.name} in {self._group.file.filename}
+        ├─── id: {self.id}
+        ├─── name: {self.name}
+        ├─── comment: {self.comment}
+        ├─── sample_period: {self.sample_period} ns ({1 / self.sample_period * 1e9} Hz)
+        ├─── n_channels: {self.n_channels}
+        ├─── n_samples: {self.n_samples}
+        ├─── duration: {self.duration_s:.2f} s
+        ├─── n_regions: {self.n_regions}
+        ├─── signal_type: {self.signal_type.name if self.signal_type else "None"}
+        ├─── calibration: {self.calibration if self.calibration is not None else "None"}
+        ├─── data: {self.data.shape}
+        └─── index: {self.index.shape}
+            """
+
+    def __repr__(self):
+        return f"Cont(group={self._group.name})"
+
+    # properties
+
     @property
     def id(self) -> int:
-        """Return the unique identifier of the continuous signal."""
+        """Return the integer identifier of the continuous signal."""
         return cont_id_from_name(self._group.name)
-
 
     @property
     def data(self) -> npt.NDArray[np.int16]:
-        """Return the raw signal data (nSamples, nChannels)."""
+        """Return the raw integer signal data (nSamples, nChannels)."""
         return self._group[DATA_DATASET_NAME][()]
 
     @property
@@ -187,7 +208,7 @@ class Cont():
     @property
     def name(self) -> str:
         """Return the name attribute."""
-        return str(self._group.attrs["Name"])
+        return self._group.attrs.get("Name", "")
 
     @property
     def comment(self) -> str:
@@ -251,11 +272,11 @@ class Cont():
             return self.data.astype(np.float64)
         return self.data * calib
 
-
     @classmethod
     def from_group(cls, group: h5py.Group) -> "Cont":
         """Create a Cont instance from an h5py.Group."""
         return cls(group)
+
 
 # create
 def create_empty_cont_group_in_file(
@@ -401,12 +422,12 @@ def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
 def get_cont_group_names_from_file(
     filename: h5py.File,
 ) -> list[str]:
-    cont_group_names =  [
+    cont_group_names = [
         name
         for name in filename.keys()
         if name.startswith(CONT_PREFIX) and isinstance(filename[name], h5py.Group)
     ]
-    cont_group_names.sort(key=lambda name: int(name[len(CONT_PREFIX):]))
+    cont_group_names.sort(key=lambda name: int(name[len(CONT_PREFIX) :]))
     return cont_group_names
 
 
