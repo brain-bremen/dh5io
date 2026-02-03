@@ -548,12 +548,27 @@ def create_browser(
                         source=source, name=f"Epochs {i + 1}"
                     )
                     epoch_view.params["xsize"] = 10.0  # Match trace viewer
-                    epoch_view.params["color_mode"] = (
-                        "progressive"  # Different color per event type
-                    )
                     win.add_view(epoch_view)
                     epoch_viewer_widgets.append(epoch_view)
                     view_count += 1
+
+                    # Apply progressive colors to distinguish event types
+                    import matplotlib.cm
+                    import matplotlib.colors
+                    import numpy
+
+                    n_channels = source.nb_channel
+                    cmap = matplotlib.cm.get_cmap("Dark2", n_channels)
+
+                    epoch_view.by_channel_params.blockSignals(True)
+                    for c in range(n_channels):
+                        color = [
+                            int(e * 255)
+                            for e in matplotlib.colors.ColorConverter().to_rgb(cmap(c))
+                        ]
+                        epoch_view.by_channel_params[f"ch{c}", "color"] = color
+                    epoch_view.by_channel_params.blockSignals(False)
+                    epoch_view.refresh()
 
         if view_count > 0:
             logger.debug(
