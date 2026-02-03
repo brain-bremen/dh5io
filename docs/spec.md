@@ -1,6 +1,6 @@
 # DAQ-HDF file format (dh5)
 
-Document revision 3 from 19.01.2026
+Document revision 3.1 from 03.02.2026
 
 ## Abstract
 
@@ -516,7 +516,7 @@ groups named `WAVELETn`, where n can have values between 0 and 65535. `CONT`,
 
 `WAVELETn` group **must** have the following **datasets**:
 
-- `DATA` (`struct` array\[F,M,N\]):
+- `DATA` (`struct` array\[N,M,F\]):
 
   | Offset | Name | Type     |
   | ------ | ---- | -------- |
@@ -531,8 +531,8 @@ groups named `WAVELETn`, where n can have values between 0 and 65535. `CONT`,
   | 8      | offset  | `int64`  |
   | 16     | scaling | `double` |
 
-Here, F is the number of frequency bins; M is the total number of time
-samples stored; N is the number of channels in the nTrode; R is the number of
+Here, N is the number of channels in the nTrode; M is the total number of time
+samples stored; F is the number of frequency bins; R is the number of
 recording regions.
 
 Description of the **attributes**:
@@ -547,8 +547,8 @@ Description of the **attributes**:
 Description of the **datasets**:
 
 - `DATA` stores the wavelet transform results as a 3-dimensional array with
-  compound structure. For each time-frequency point and channel, two values are
-  stored:
+  shape \[N,M,F\] (channels, time samples, frequencies) with compound structure.
+  For each time-frequency point and channel, two values are stored:
   - `a` (amplitude/magnitude) is stored as unsigned 16-bit integers with
     values from 0 to 65535. These are scaled values that must be converted to
     floating-point representation using scaling factors from the INDEX dataset.
@@ -558,7 +558,7 @@ Description of the **datasets**:
 - `INDEX` characterizes each recording region with three values:
   - `time` is the timestamp of the first time sample in nanoseconds.
   - `offset` specifies the sample offset within the `DATA` dataset where the
-    first sample of a particular region is stored (1-based indexing).
+    first sample of a particular region is stored (0-based indexing).
   - `scaling` is a floating-point scaling factor used to restore the actual
     magnitude values. To obtain the true magnitude value for samples in a given
     region, multiply the raw `a` values by the corresponding `scaling` factor.
