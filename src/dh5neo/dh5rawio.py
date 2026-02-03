@@ -1,4 +1,6 @@
+import logging
 import pathlib
+import time
 import typing
 from dataclasses import dataclass
 
@@ -15,6 +17,13 @@ from neo.rawio.baserawio import (
 from dh5io.cont import Cont
 from dh5io.dh5file import DH5File
 from dh5io.trialmap import Trialmap
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Global counter for profiling
+_chunk_call_count = 0
+_chunk_total_time = 0.0
 
 
 @dataclass
@@ -134,19 +143,54 @@ class DH5RawIO(BaseRawIO):
         return numpy.array(spike_channels, dtype=_spike_channel_dtype)
 
     def _parse_header(self):
+        logger.debug("  _parse_header() called")
+        parse_start = time.perf_counter()
+
+        step = time.perf_counter()
         _trialmap = self._file.get_trialmap()
+        logger.debug(f"    get_trialmap(): {time.perf_counter() - step:.3f}s")
+
         nb_segment = [1] if _trialmap is None else [int(len(_trialmap))]
+
+        step = time.perf_counter()
+        signal_streams = self._parse_signal_streams()
+        logger.debug(f"    _parse_signal_streams(): {time.perf_counter() - step:.3f}s")
+
+        step = time.perf_counter()
+        signal_channels = self._parse_signal_channels()
+        logger.debug(f"    _parse_signal_channels(): {time.perf_counter() - step:.3f}s")
+
+        step = time.perf_counter()
+        event_channels = self._parse_event_channels()
+        logger.debug(f"    _parse_event_channels(): {time.perf_counter() - step:.3f}s")
+
+        step = time.perf_counter()
+        spike_channels = self._parse_spike_channels()
+        logger.debug(f"    _parse_spike_channels(): {time.perf_counter() - step:.3f}s")
 
         self.header = RawIOHeader(
             nb_block=1,
             nb_segment=nb_segment,
-            signal_streams=self._parse_signal_streams(),
-            signal_channels=self._parse_signal_channels(),
-            event_channels=self._parse_event_channels(),
-            spike_channels=self._parse_spike_channels(),
+            signal_streams=signal_streams,
+            signal_channels=signal_channels,
+            event_channels=event_channels,
+            spike_channels=spike_channels,
         )
 
+        step = time.perf_counter()
         self._generate_minimal_annotations()
+        logger.debug(
+            f"    _generate_minimal_annotations(): {time.perf_counter() - step:.3f}s"
+        )
+
+        logger.debug(
+            f"  _parse_header() total: {time.perf_counter() - parse_start:.3f}s"
+        )
+
+        # Reset chunk call statistics
+        global _chunk_call_count, _chunk_total_time
+        _chunk_call_count = 0
+        _chunk_total_time = 0.0
 
     def _parse_event_channels(
         self,
@@ -287,6 +331,13 @@ class DH5RawIO(BaseRawIO):
         -------
             array of samples, with each requested channel in a column
         """
+        global _chunk_call_count, _chunk_total_time
+        _chunk_call_count += 1
+        func_start = time.perf_counter()
+        logger.debug(
+            f"    _get_analogsignal_chunk called (call #{_chunk_call_count}, stream={stream_index}, seg={seg_index})"
+        )
+
         if self.header is None:
             raise ValueError("Header not yet parsed")
 
@@ -295,7 +346,12 @@ class DH5RawIO(BaseRawIO):
 
         stream_id: str = self.header.signal_streams[stream_index]["id"]
         cont_id = int(stream_id.replace("CONT", ""))
+
+        step = time.perf_counter()
         cont = self._file.get_cont_group_by_id(cont_id)
+        logger.debug(
+            f"      get_cont_group_by_id({cont_id}): {time.perf_counter() - step:.3f}s"
+        )
 
         if channel_indexes is None:
             channel_indexes = numpy.arange(cont.n_channels)
@@ -305,11 +361,18 @@ class DH5RawIO(BaseRawIO):
         trial_end_ns = self._trialmap[seg_index]["EndTime"]
 
         # Get index and data
+        step = time.perf_counter()
         index = cont.index
+        logger.debug(f"      cont.index access: {time.perf_counter() - step:.3f}s")
+
+        step = time.perf_counter()
         data = cont.data
+        logger.debug(f"      cont.data access: {time.perf_counter() - step:.3f}s")
+
         sample_period_ns = cont.sample_period
 
         # Find data samples corresponding to the trial
+        step = time.perf_counter()
         all_samples = []
 
         for i, region in enumerate(index):
@@ -350,11 +413,17 @@ class DH5RawIO(BaseRawIO):
                 region_samples = data[abs_start:abs_end, :]
                 all_samples.append(region_samples)
 
+        logger.debug(
+            f"      index loop & data extraction: {time.perf_counter() - step:.3f}s"
+        )
+
         # Concatenate all samples
         if not all_samples:
             return numpy.zeros((0, len(channel_indexes)), dtype=data.dtype)
 
+        step = time.perf_counter()
         full_signal = numpy.concatenate(all_samples, axis=0)
+        logger.debug(f"      concatenate samples: {time.perf_counter() - step:.3f}s")
 
         # Apply i_start and i_stop within the trial
         if i_start is None:
@@ -362,7 +431,15 @@ class DH5RawIO(BaseRawIO):
         if i_stop is None:
             i_stop = full_signal.shape[0]
 
-        return full_signal[i_start:i_stop, channel_indexes]
+        result = full_signal[i_start:i_stop, channel_indexes]
+
+        elapsed = time.perf_counter() - func_start
+        _chunk_total_time += elapsed
+        logger.debug(
+            f"    _get_analogsignal_chunk(stream={stream_index}, seg={seg_index}) total: {elapsed:.3f}s (cumulative: {_chunk_total_time:.3f}s)"
+        )
+
+        return result
 
     # spiketrain and unit zone
     def _spike_count(

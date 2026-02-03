@@ -14,8 +14,7 @@ of the University of Bremen since 2005.
 - **`dh5neo` (WIP)** contains code for reading DAQ-HDF5 data into
   [Neo](https://github.com/NeuralEnsemble/python-neo) objects (e.g. for use with [Elephant](https://elephant.readthedocs.io/en/latest/index.html), [SpikeInterface](https://spikeinterface.readthedocs.io) and [ephyviewer](https://ephyviewer.readthedocs.io/)
 
-## Getting started 
-
+## Getting started
 
 ### Installation
 
@@ -31,9 +30,7 @@ Or with pip:
 pip install dh5io
 ```
 
-
 ### Reading and writing from and into DH5 files
-
 
 ```python
 from dh5io.dh5file import DH5File
@@ -48,7 +45,6 @@ with DH5File(example_filename, "r") as dh5:
     trialmap = dh5.get_trialmap()
     print(trialmap)
 ```
-
 
 ```
   DAQ-HDF5 File (version 2) <example_filename> containing:
@@ -67,8 +63,8 @@ with DH5File(example_filename, "r") as dh5:
 
   /CONT1 in <example_filename>
       ├─── id: 1
-      ├─── name: 
-      ├─── comment: 
+      ├─── name:
+      ├─── comment:
       ├─── sample_period: 1000000 ns (1000.0 Hz)
       ├─── n_channels: 1
       ├─── n_samples: 1443184
@@ -85,21 +81,67 @@ group. The `DH5File` class provides methods for accessing the various groups and
 within the file. The `Cont`, `Spike` (coming in next versions) and `Trialmap` classes
 provide convenient wrappers for working with these raw HDF5 groups and datasets. The
 corresponding [h5py](https://docs.h5py.org/en/stable/index.html) classes can be accessed
-directly for lower-level operations using the `_file`,  `_group` and `_dataset` attributes
+directly for lower-level operations using the `_file`, `_group` and `_dataset` attributes
 (e.g. `cont._group` or `cont.data._dataset`).
 
 As an alternative to the object-oriented approach using `DH5File`, you can use the
 functional API provided by the library. This API offers a set of functions for reading and
 writing data to DH5 files without the need to create file objects. These functions in the
-respective modules (`h5io.cont`, `h5io.spike`, etc.)  use the
+respective modules (`h5io.cont`, `h5io.spike`, etc.) use the
 [h5py](https://docs.h5py.org/en/stable/index.html) classes as input and output. This is the
 recommended way if you are familiar with HDF5 and the specification of the DH5 format.
 
+### Interactive Data Browser
+
+The `dh5browser` command provides an interactive graphical viewer for DH5 files with trial navigation:
+
+```bash
+# Install with browser support
+pip install dh5io[browser]
+
+# Open a DH5 file (displays first trial)
+dh5browser mydata.dh5
+
+# Open a specific trial
+dh5browser mydata.dh5 --trial 2
+
+# Adjust cache size for faster navigation (default: 10)
+dh5browser mydata.dh5 --cache-size 20
+```
+
+The browser displays:
+
+- **Analog signals** (CONT groups) - Multi-channel trace viewer
+- **Spike trains** (SPIKE groups) - Raster plots
+- **Events** (EV02) - Event timeline
+- **Epochs** (TRIALMAP) - Trial markers
+
+**New in latest version:** Interactive trial navigation with caching
+
+- Click **◀ Previous** / **Next ▶** buttons to navigate between trials
+- Intelligent LRU caching for instant switching to recently viewed trials
+- Configurable cache size to balance memory usage vs. performance
+- Debug mode shows cache performance: `dh5browser mydata.dh5 --debug`
+
+**Channel Selection:** Double-click on the trace viewer to open the parameters panel where you can:
+
+- Show/hide individual channels by toggling their **visible** checkbox
+- Adjust per-channel gain and offset
+- Change channel colors
+- **All settings automatically persist across sessions**
+
+Features include synchronized time navigation, zoom/pan controls, and auto-scaling. The browser is built on [ephyviewer](https://ephyviewer.readthedocs.io/) and provides an intuitive interface for exploring electrophysiology data.
+
+For more information, see:
+
+- [Browser Documentation](src/dh5cli/BROWSER_README.md)
+- [Trial Navigation Guide](docs/SEGMENT_NAVIGATION.md)
+- [Usage Examples](examples/example_dh5_browser.py)
 
 ## Developer setup
 
 - Use [uv](https://docs.astral.sh/uv)
-- Setup pre-push hook for running pytest 
+- Setup pre-push hook for running pytest
   ```bash
   git config --local core.hooksPath .githooks
   ```

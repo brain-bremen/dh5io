@@ -2,6 +2,58 @@
 
 ## Available Commands
 
+### dh5browser
+
+Interactive data browser for DH5 files using ephyviewer.
+
+```bash
+# Open a DH5 file (displays first segment/trial)
+dh5browser mydata.dh5
+
+# Open a specific segment/trial
+dh5browser mydata.dh5 --segment 0
+dh5browser mydata.dh5 -s 2
+
+# Get help
+dh5browser --help
+```
+
+#### Features
+
+The browser provides an interactive viewer with:
+
+- **Analog Signals**: Multi-channel trace viewer with pan/zoom controls
+- **Spike Trains**: Raster plot showing spike times for each unit
+- **Events**: Event list with timestamps and labels
+- **Epochs**: Duration-based events (e.g., trials)
+- **Synchronized Navigation**: All views share a common time axis
+
+#### Installation
+
+The browser requires additional dependencies:
+
+```bash
+# Install with browser support
+pip install dh5io[browser]
+
+# Or install all optional features
+pip install dh5io[all]
+```
+
+This installs `ephyviewer`, `neo`, and Qt dependencies (PyQt5/PySide6).
+
+#### Current Limitations
+
+- Only one trial/segment can be viewed at a time
+- All data for the selected segment is loaded into memory
+- Read-only viewer (no editing/annotation yet)
+
+#### See Also
+
+- [Browser Documentation](BROWSER_README.md)
+- [Usage Examples](../../examples/example_dh5_browser.py)
+- [ephyviewer Documentation](https://ephyviewer.readthedocs.io/)
+
 ### dh5tree
 
 Display the contents of a DH5 file as a tree structure.
