@@ -1,35 +1,43 @@
 """CLI tool for merging multiple DH5 files.
 
-This tool merges two or more DH5 files that contain the same CONT blocks
-(channels) recorded at different non-overlapping times. The DATA arrays
-are concatenated and the INDEX datasets are updated to reflect the new offsets.
+This tool merges two or more DH5 files that contain the same CONT and/or WAVELET
+blocks recorded at different non-overlapping times. The DATA arrays are
+concatenated and the INDEX datasets are updated to reflect the new offsets.
+
+Supported data types:
+- CONT blocks: Continuous data channels
+- WAVELET blocks: Time-frequency wavelet transform data
+- TRIALMAP: Trial mapping information
+- EV02: Event triggers
+
+The tool finds common blocks across all input files and merges them into a
+single output file, preserving temporal ordering and updating indices accordingly.
 """
 
 import argparse
-import sys
 import logging
-from pathlib import Path
-import numpy as np
-from typing import List, Optional, Set, Tuple
+import sys
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox
-import h5py
+from typing import List, Optional, Set, Tuple
 
-from dh5io.dh5file import DH5File
+import h5py
+import numpy as np
+
+from dh5io.cont import Cont, create_cont_group_from_data_in_file
 from dh5io.create import create_dh_file
-from dh5io.cont import (
-    create_cont_group_from_data_in_file,
-    Cont,
-)
-from dh5io.trialmap import (
-    get_trialmap_from_file,
-    add_trialmap_to_file,
-)
+from dh5io.dh5file import DH5File
 from dh5io.event_triggers import (
-    get_event_triggers_from_file,
     add_event_triggers_to_file,
+    get_event_triggers_from_file,
 )
 from dh5io.operations import add_operation_to_file
+from dh5io.trialmap import add_trialmap_to_file, get_trialmap_from_file
+from dh5io.wavelet import (
+    Wavelet,
+    create_wavelet_group_from_data_in_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +51,10 @@ def merge_dh5_files(
     """
     Merge multiple DH5 files into a single output file.
 
+    This function merges CONT blocks, WAVELET blocks, TRIALMAPs, and event triggers
+    from multiple input files. Only data blocks that are present in all input files
+    will be merged.
+
     Parameters
     ----------
     input_files : List[Path]
@@ -53,6 +65,13 @@ def merge_dh5_files(
         If provided, only merge these CONT block IDs. Otherwise, merge all common blocks.
     overwrite : bool
         Whether to overwrite the output file if it exists
+
+    Raises
+    ------
+    ValueError
+        If fewer than 2 input files provided, or if no common CONT or WAVELET blocks found
+    FileNotFoundError
+        If any input file does not exist
     """
     if len(input_files) < 2:
         raise ValueError("At least two input files are required for merging")
@@ -69,10 +88,16 @@ def merge_dh5_files(
         # Determine which CONT blocks to merge
         cont_blocks_to_merge = determine_cont_blocks_to_merge(input_dh5_files, cont_ids)
 
-        if not cont_blocks_to_merge:
-            raise ValueError("No common CONT blocks found to merge")
+        # Determine which WAVELET blocks to merge
+        wavelet_blocks_to_merge = determine_wavelet_blocks_to_merge(input_dh5_files)
 
-        logger.info(f"Merging CONT blocks: {sorted(cont_blocks_to_merge)}")
+        if not cont_blocks_to_merge and not wavelet_blocks_to_merge:
+            raise ValueError("No common CONT or WAVELET blocks found to merge")
+
+        if cont_blocks_to_merge:
+            logger.info(f"Merging CONT blocks: {sorted(cont_blocks_to_merge)}")
+        if wavelet_blocks_to_merge:
+            logger.info(f"Will merge WAVELET blocks: {sorted(wavelet_blocks_to_merge)}")
 
         # Get boards attribute from first file
         boards = input_dh5_files[0]._file.attrs.get("BOARDS", [])
@@ -86,9 +111,10 @@ def merge_dh5_files(
 
         try:
             # Merge each CONT block
-            for cont_id in sorted(cont_blocks_to_merge):
-                logger.info(f"Merging CONT{cont_id}...")
-                merge_cont_block(input_dh5_files, output_dh5, cont_id)
+            if cont_blocks_to_merge:
+                for cont_id in sorted(cont_blocks_to_merge):
+                    logger.info(f"Merging CONT{cont_id}...")
+                    merge_cont_block(input_dh5_files, output_dh5, cont_id)
 
             # Merge TRIALMAP if present
             logger.info("Merging TRIALMAP...")
@@ -97,6 +123,13 @@ def merge_dh5_files(
             # Merge EV02 (event triggers) if present
             logger.info("Merging EV02 (event triggers)...")
             merge_event_triggers(input_dh5_files, output_dh5)
+
+            # Merge WAVELET blocks if present
+            if wavelet_blocks_to_merge:
+                logger.info("Merging WAVELET blocks...")
+                for wavelet_id in sorted(wavelet_blocks_to_merge):
+                    logger.info(f"Merging WAVELET{wavelet_id}...")
+                    merge_wavelet_block(input_dh5_files, output_dh5, wavelet_id)
 
             # Add operation record about the merge
             logger.info("Adding merge operation to file...")
@@ -229,6 +262,10 @@ def merge_trialmaps(input_files: List[DH5File], output_file: DH5File) -> None:
     TRIALMAPs are concatenated in order. If files have no TRIALMAP,
     this function does nothing.
 
+    Validates that:
+    - All trials have increasing timestamps (StartTime)
+    - Trials in file N+1 come after trials in file N
+
     Parameters
     ----------
     input_files : List[DH5File]
@@ -250,6 +287,39 @@ def merge_trialmaps(input_files: List[DH5File], output_file: DH5File) -> None:
     if not trialmaps:
         logger.info("No TRIALMAPs found in input files")
         return
+
+    # Validate that trials have increasing timestamps within each file
+    for i, trialmap in enumerate(trialmaps):
+        if len(trialmap) > 0:
+            start_times = trialmap["StartTime"]
+            if not np.all(np.diff(start_times) > 0):
+                logger.warning(
+                    f"TRIALMAP in file {i}: Trial StartTime values are not strictly increasing. "
+                    f"This may indicate a data quality issue."
+                )
+
+    # Validate that trialmaps are sequential across files
+    for i in range(len(trialmaps) - 1):
+        current_trialmap = trialmaps[i]
+        next_trialmap = trialmaps[i + 1]
+
+        if len(current_trialmap) == 0 or len(next_trialmap) == 0:
+            continue  # Skip empty trialmaps
+
+        # Get the last trial's end time from current file
+        current_last_end = np.max(current_trialmap["EndTime"])
+
+        # Get the first trial's start time from next file
+        next_first_start = np.min(next_trialmap["StartTime"])
+
+        # Check that next file's trials come after current file's trials
+        if next_first_start < current_last_end:
+            raise ValueError(
+                f"TRIALMAP: Data is not sequential between files {i} and {i + 1}. "
+                f"File {i + 1} has a trial starting at {next_first_start} ns, which overlaps with "
+                f"or comes before file {i}'s last trial ending at {current_last_end} ns. "
+                f"Files must contain non-overlapping, sequential trials for merging."
+            )
 
     # Concatenate all trialmaps
     merged_trialmap_array = np.concatenate(trialmaps)
@@ -275,6 +345,10 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
     Event triggers are concatenated in order. If files have no EV02,
     this function does nothing.
 
+    Validates that:
+    - All event timestamps are increasing within each file
+    - Events in file N+1 come after events in file N
+
     Parameters
     ----------
     input_files : List[DH5File]
@@ -297,6 +371,39 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
         logger.info("No EV02 datasets found in input files")
         return
 
+    # Validate that event timestamps are increasing within each file
+    for i, events in enumerate(all_event_triggers):
+        if len(events) > 0:
+            event_times = events["time"]
+            if not np.all(np.diff(event_times) > 0):
+                logger.warning(
+                    f"EV02 in file {i}: Event timestamps are not strictly increasing. "
+                    f"This may indicate a data quality issue."
+                )
+
+    # Validate that events are sequential across files
+    for i in range(len(all_event_triggers) - 1):
+        current_events = all_event_triggers[i]
+        next_events = all_event_triggers[i + 1]
+
+        if len(current_events) == 0 or len(next_events) == 0:
+            continue  # Skip empty event datasets
+
+        # Get the last event time from current file
+        current_last_time = np.max(current_events["time"])
+
+        # Get the first event time from next file
+        next_first_time = np.min(next_events["time"])
+
+        # Check that next file's events come after current file's events
+        if next_first_time < current_last_time:
+            raise ValueError(
+                f"EV02: Data is not sequential between files {i} and {i + 1}. "
+                f"File {i + 1} has an event at time {next_first_time} ns, which overlaps with "
+                f"or comes before file {i}'s last event at {current_last_time} ns. "
+                f"Files must contain non-overlapping, sequential events for merging."
+            )
+
     # Concatenate all event triggers
     merged_events = np.concatenate(all_event_triggers)
 
@@ -310,6 +417,261 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
 
     # Add to output file
     add_event_triggers_to_file(output_file._file, timestamps, event_codes)
+
+
+def determine_wavelet_blocks_to_merge(input_files: List[DH5File]) -> Set[int]:
+    """
+    Determine which WAVELET blocks should be merged.
+
+    Find the intersection of WAVELET block IDs across all files.
+
+    Parameters
+    ----------
+    input_files : List[DH5File]
+        List of input DH5 files
+
+    Returns
+    -------
+    Set[int]
+        Set of WAVELET block IDs to merge
+    """
+    # Get WAVELET block IDs from each file
+    file_wavelet_ids = [set(f.get_wavelet_group_ids()) for f in input_files]
+
+    # Find intersection of all WAVELET block IDs
+    if not file_wavelet_ids or not file_wavelet_ids[0]:
+        return set()
+
+    common_ids = file_wavelet_ids[0]
+    for ids in file_wavelet_ids[1:]:
+        common_ids &= ids
+
+    if not common_ids:
+        # Show what's available in each file
+        for i, ids in enumerate(file_wavelet_ids):
+            if ids:
+                logger.debug(
+                    f"File {i} ({input_files[i]._file.filename}) has WAVELET blocks: {sorted(ids)}"
+                )
+
+    return common_ids
+
+
+def validate_wavelet_blocks_compatible(
+    wavelet_blocks: List[Wavelet], wavelet_id: int
+) -> None:
+    """
+    Validate that WAVELET blocks from different files are compatible for merging.
+
+    All blocks must have the same:
+    - Sample period
+    - Number of channels
+    - Number of frequencies
+    - Frequency axis values
+
+    Additionally validates that data is sequential (non-overlapping in time):
+    - Data in file N+1 must come after data in file N
+
+    Parameters
+    ----------
+    wavelet_blocks : List[Wavelet]
+        List of WAVELET blocks to validate
+    wavelet_id : int
+        WAVELET block ID (for error messages)
+    """
+    first = wavelet_blocks[0]
+
+    for i, wavelet in enumerate(wavelet_blocks[1:], start=1):
+        # Check sample period
+        if wavelet.sample_period != first.sample_period:
+            raise ValueError(
+                f"WAVELET{wavelet_id}: Sample period mismatch in file {i}. "
+                f"Expected {first.sample_period} ns, got {wavelet.sample_period} ns"
+            )
+
+        # Check number of channels
+        if wavelet.n_channels != first.n_channels:
+            raise ValueError(
+                f"WAVELET{wavelet_id}: Number of channels mismatch in file {i}. "
+                f"Expected {first.n_channels}, got {wavelet.n_channels}"
+            )
+
+        # Check number of frequencies
+        if wavelet.n_frequencies != first.n_frequencies:
+            raise ValueError(
+                f"WAVELET{wavelet_id}: Number of frequencies mismatch in file {i}. "
+                f"Expected {first.n_frequencies}, got {wavelet.n_frequencies}"
+            )
+
+        # Check frequency axis
+        if not np.allclose(wavelet.frequency_axis, first.frequency_axis):
+            raise ValueError(
+                f"WAVELET{wavelet_id}: Frequency axis mismatch in file {i}. "
+                f"Expected {first.frequency_axis}, got {wavelet.frequency_axis}"
+            )
+
+    # Validate that data is sequential (non-overlapping in time)
+    for i in range(len(wavelet_blocks) - 1):
+        current_block = wavelet_blocks[i]
+        next_block = wavelet_blocks[i + 1]
+
+        # Calculate the end time of current block's data
+        # End time = last sample's timestamp + (n_samples * sample_period)
+        if current_block.n_samples == 0:
+            continue  # Skip empty blocks
+
+        current_index = current_block.index[:]
+        if len(current_index) == 0:
+            continue
+
+        # Find the last recording region
+        last_region_idx = np.argmax(current_index["time"])
+        last_region_start = current_index[last_region_idx]["time"]
+        last_region_offset = current_index[last_region_idx]["offset"]
+
+        # Calculate how many samples are in this last region
+        samples_in_last_region = current_block.n_samples - last_region_offset
+
+        # Calculate end time: start of last region + duration of samples in that region
+        current_end_time = last_region_start + (
+            samples_in_last_region * current_block.sample_period
+        )
+
+        # Get the first timestamp from next block
+        next_index = next_block.index[:]
+        if len(next_index) == 0 or next_block.n_samples == 0:
+            continue  # Skip empty blocks
+        next_first_time = np.min(next_index["time"])
+
+        # Check that next file's data comes after current file's data
+        if next_first_time < current_end_time:
+            raise ValueError(
+                f"WAVELET{wavelet_id}: Data is not sequential between files {i} and {i + 1}. "
+                f"File {i + 1} starts at {next_first_time} ns, which overlaps with "
+                f"file {i}'s data ending at {current_end_time} ns. "
+                f"Files must contain non-overlapping, sequential data for merging."
+            )
+
+
+def concatenate_wavelet_data(
+    wavelet_blocks: List[Wavelet],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Concatenate DATA arrays and merge INDEX datasets from multiple WAVELET blocks.
+
+    The INDEX dataset is updated so that offsets reflect the concatenated DATA array.
+    Time stamps are preserved from the original recordings.
+
+    Parameters
+    ----------
+    wavelet_blocks : List[Wavelet]
+        List of WAVELET blocks to concatenate
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Tuple of (merged_amplitude, merged_phase, merged_index)
+    """
+    # Collect amplitude and phase data from all blocks
+    amplitude_arrays = []
+    phase_arrays = []
+    index_arrays = []
+    data_shapes = []
+
+    for wavelet in wavelet_blocks:
+        # Get calibrated amplitude and phase for this block
+        amplitude = wavelet.get_amplitude_calibrated()
+        phase = wavelet.get_phase_radians()
+
+        amplitude_arrays.append(amplitude)
+        phase_arrays.append(phase)
+        index_arrays.append(wavelet.index[:])
+
+        # Shape is (N, M, F) - we only need M (samples dimension)
+        data_shapes.append(amplitude.shape[1])
+
+    # Concatenate along the samples axis (axis 1: M dimension)
+    merged_amplitude = np.concatenate(amplitude_arrays, axis=1)
+    merged_phase = np.concatenate(phase_arrays, axis=1)
+
+    # Merge index arrays - need to adjust offsets
+    merged_indices = []
+    cumulative_samples = 0
+
+    for index_array, n_samples in zip(index_arrays, data_shapes):
+        # Copy the index array
+        adjusted_index = index_array.copy()
+
+        # Adjust offsets by the cumulative sample count
+        adjusted_index["offset"] += cumulative_samples
+
+        merged_indices.append(adjusted_index)
+
+        # Update cumulative sample count (n_samples is M dimension)
+        cumulative_samples += n_samples
+
+    merged_index = np.concatenate(merged_indices)
+
+    return merged_amplitude, merged_phase, merged_index
+
+
+def merge_wavelet_block(
+    input_files: List[DH5File], output_file: DH5File, wavelet_id: int
+) -> None:
+    """
+    Merge a single WAVELET block from multiple files.
+
+    This concatenates the DATA arrays and updates the INDEX dataset
+    to reflect the new offsets.
+
+    Parameters
+    ----------
+    input_files : List[DH5File]
+        List of input DH5 files
+    output_file : DH5File
+        Output DH5 file
+    wavelet_id : int
+        WAVELET block ID to merge
+    """
+    # Load WAVELET blocks from all files
+    wavelet_blocks = [f.get_wavelet_group_by_id(wavelet_id) for f in input_files]
+
+    # Filter out None values (in case some files don't have this wavelet)
+    wavelet_blocks = [w for w in wavelet_blocks if w is not None]
+
+    if not wavelet_blocks:
+        logger.warning(f"WAVELET{wavelet_id}: No blocks found to merge")
+        return
+
+    # Validate compatibility
+    validate_wavelet_blocks_compatible(wavelet_blocks, wavelet_id)
+
+    # Use attributes from the first file
+    first_wavelet = wavelet_blocks[0]
+    sample_period = first_wavelet.sample_period
+    frequency_axis = first_wavelet.frequency_axis
+
+    # Handle optional attributes safely
+    name = first_wavelet.name
+    comment = first_wavelet.comment
+
+    # Concatenate data and merge indices
+    merged_amplitude, merged_phase, merged_index = concatenate_wavelet_data(
+        wavelet_blocks
+    )
+
+    # Create merged WAVELET block in output file
+    create_wavelet_group_from_data_in_file(
+        output_file._file,
+        wavelet_id,
+        amplitude=merged_amplitude,
+        phase=merged_phase,
+        index=merged_index,
+        sample_period_ns=np.int32(sample_period),
+        frequency_axis=frequency_axis,
+        name=name,
+        comment=comment,
+    )
 
 
 def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
@@ -334,7 +696,7 @@ def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
     )
 
     # Get the last operation group to add custom attributes
-    from dh5io.operations import get_operations_group, get_last_operation_index
+    from dh5io.operations import get_last_operation_index, get_operations_group
 
     operations_group = get_operations_group(output_file._file)
     if operations_group is not None:
@@ -361,6 +723,9 @@ def validate_cont_blocks_compatible(cont_blocks: List[Cont], cont_id: int) -> No
     - Number of channels
     - Calibration (if present)
     - Channel configuration
+
+    Additionally validates that data is sequential (non-overlapping in time):
+    - Data in file N+1 must come after data in file N
 
     Parameters
     ----------
@@ -399,9 +764,51 @@ def validate_cont_blocks_compatible(cont_blocks: List[Cont], cont_id: int) -> No
             if not np.allclose(first_calib, cont_calib):
                 logger.warning(f"CONT{cont_id}: Calibration values differ in file {i}")
 
+    # Validate that data is sequential (non-overlapping in time)
+    for i in range(len(cont_blocks) - 1):
+        current_block = cont_blocks[i]
+        next_block = cont_blocks[i + 1]
+
+        # Calculate the end time of current block's data
+        # End time = last sample's timestamp + (n_samples * sample_period)
+        if current_block.n_samples == 0:
+            continue  # Skip empty blocks
+
+        current_index = current_block.index[:]
+        if len(current_index) == 0:
+            continue
+
+        # Find the last recording region
+        last_region_idx = np.argmax(current_index["time"])
+        last_region_start = current_index[last_region_idx]["time"]
+        last_region_offset = current_index[last_region_idx]["offset"]
+
+        # Calculate how many samples are in this last region
+        samples_in_last_region = current_block.n_samples - last_region_offset
+
+        # Calculate end time: start of last region + duration of samples in that region
+        current_end_time = last_region_start + (
+            samples_in_last_region * current_block.sample_period
+        )
+
+        # Get the first timestamp from next block
+        next_index = next_block.index[:]
+        if len(next_index) == 0 or next_block.n_samples == 0:
+            continue  # Skip empty blocks
+        next_first_time = np.min(next_index["time"])
+
+        # Check that next file's data comes after current file's data
+        if next_first_time < current_end_time:
+            raise ValueError(
+                f"CONT{cont_id}: Data is not sequential between files {i} and {i + 1}. "
+                f"File {i + 1} starts at {next_first_time} ns, which overlaps with "
+                f"file {i}'s data ending at {current_end_time} ns. "
+                f"Files must contain non-overlapping, sequential data for merging."
+            )
+
 
 def merge_index_arrays_with_shapes(
-    index_arrays: List[np.ndarray], data_shapes: List[tuple[int, int]]
+    index_arrays: List[np.ndarray], data_shapes: List[tuple]
 ) -> np.ndarray:
     """
     Merge multiple INDEX arrays with knowledge of data array shapes.
@@ -410,8 +817,9 @@ def merge_index_arrays_with_shapes(
     ----------
     index_arrays : List[np.ndarray]
         List of INDEX arrays to merge
-    data_shapes : List[tuple[int, int]]
-        List of data array shapes (nSamples, nChannels)
+    data_shapes : List[tuple]
+        List of data array shapes (nSamples, nChannels) for CONT data
+        or other shapes for different data types
 
     Returns
     -------
@@ -584,24 +992,27 @@ def main():
     else:
         # CLI mode with arguments
         parser = argparse.ArgumentParser(
-            description="Merge multiple DH5 files containing the same channels recorded at different times.",
+            description="Merge multiple DH5 files containing the same CONT blocks, WAVELET blocks, and other data recorded at different times.",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
   # Open GUI file selector
   dh5merge
-  
-  # Merge all common CONT blocks from multiple files
+
+  # Merge all common CONT and WAVELET blocks from multiple files
   dh5merge file1.dh5 file2.dh5 file3.dh5 -o merged.dh5
-  
-  # Merge only specific CONT blocks
+
+  # Merge only specific CONT blocks (WAVELET blocks still merged if common)
   dh5merge file1.dh5 file2.dh5 -o merged.dh5 --cont-ids 0 1 2
-  
+
   # Overwrite existing output file
   dh5merge file1.dh5 file2.dh5 -o merged.dh5 --overwrite
-  
+
   # Enable verbose logging
   dh5merge file1.dh5 file2.dh5 -o merged.dh5 -v
+
+Note: The tool merges CONT blocks, WAVELET blocks, TRIALMAPs, and event triggers
+that are common to all input files.
             """,
         )
 

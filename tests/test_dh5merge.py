@@ -1,18 +1,19 @@
 """Test the dh5merge CLI tool."""
 
-import pytest
-import numpy as np
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from dh5io.create import create_dh_file
-from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
-from dh5io.dh5file import DH5File
+import numpy as np
+import pytest
+
 from dh5cli.dh5merge import (
-    merge_dh5_files,
     determine_cont_blocks_to_merge,
+    merge_dh5_files,
     merge_index_arrays_with_shapes,
 )
+from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
+from dh5io.create import create_dh_file
+from dh5io.dh5file import DH5File
 
 
 @pytest.fixture
@@ -231,7 +232,7 @@ def test_no_common_cont_blocks(temp_dir):
     create_test_dh5_file(file2, cont_id=1, n_samples=100, n_channels=2)
 
     # Should raise ValueError
-    with pytest.raises(ValueError, match="No common CONT blocks"):
+    with pytest.raises(ValueError, match="No common CONT or WAVELET blocks"):
         merge_dh5_files([file1, file2], output)
 
 
