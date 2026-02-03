@@ -10,6 +10,7 @@ from dh5cli.dh5merge import (
     determine_cont_blocks_to_merge,
     merge_dh5_files,
     merge_index_arrays_with_shapes,
+    suggest_merged_filename,
 )
 from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
 from dh5io.create import create_dh_file
@@ -455,3 +456,99 @@ def test_merge_with_missing_trialmaps(temp_dir):
         assert trialmap.trial_numbers[2] == 3
         assert trialmap.trial_numbers[3] == 4
         assert trialmap.trial_numbers[4] == 5
+
+
+def test_suggest_merged_filename():
+    """Test the suggest_merged_filename function."""
+    # Test case 1: Files with common prefix
+    files = [
+        Path("session1_day1.dh5"),
+        Path("session1_day2.dh5"),
+        Path("session1_day3.dh5"),
+    ]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "session1_day_merged.dh5"
+
+    # Test case 2: Files with underscore separator
+    files = [Path("experiment_A.dh5"), Path("experiment_B.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "experiment_merged.dh5"
+
+    # Test case 3: Files with no overlap (should return None)
+    files = [Path("file1.dh5"), Path("data2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 4: Files with very short overlap (1 char, should return None)
+    files = [Path("x1.dh5"), Path("x2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 5: Files with trailing underscore in prefix
+    files = [Path("mouse123_trial_1.dh5"), Path("mouse123_trial_2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "mouse123_trial_merged.dh5"
+
+    # Test case 6: Complete overlap except for extension
+    files = [Path("data.dh5"), Path("data.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "data_merged.dh5"
+
+    # Test case 7: Files in different directories
+    files = [Path("/tmp/data_session1.dh5"), Path("/tmp/data_session2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "data_session_merged.dh5"
+    assert result.parent == Path("/tmp")
+
+    # Test case 8: Partial word overlap
+    files = [
+        Path("recording_file1.dh5"),
+        Path("recording_file2.dh5"),
+        Path("recording_data3.dh5"),
+    ]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "recording_merged.dh5"
+
+    # Test case 9: Less than 2 files (should return None)
+    files = [Path("file1.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 10: Empty list (should return None)
+    files = []
+    result = suggest_merged_filename(files)
+    assert result is None
+
+
+def test_merge_without_output_filename(temp_dir):
+    """Test merging files with auto-suggested output filename."""
+    # Create test files with common prefix
+    file1 = temp_dir / "session_part1.dh5"
+    file2 = temp_dir / "session_part2.dh5"
+
+    n_channels = 2
+    cont_id = 0
+
+    create_test_dh5_file(file1, cont_id, 50, n_channels, start_time=0)
+    create_test_dh5_file(file2, cont_id, 75, n_channels, start_time=1000000)
+
+    # Suggest output filename
+    suggested = suggest_merged_filename([file1, file2])
+    assert suggested is not None
+    assert suggested.name == "session_part_merged.dh5"
+    assert suggested.parent == temp_dir
+
+    # Use suggested filename to merge
+    merge_dh5_files([file1, file2], suggested)
+
+    # Verify merged file exists and is correct
+    assert suggested.exists()
+    with DH5File(suggested, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+        assert cont.n_samples == 125  # 50 + 75

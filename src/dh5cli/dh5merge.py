@@ -877,6 +877,70 @@ def concatenate_cont_data(cont_blocks: List[Cont]) -> tuple[np.ndarray, np.ndarr
     return merged_data, merged_index
 
 
+def suggest_merged_filename(input_files: List[Path]) -> Optional[Path]:
+    """
+    Suggest a merged filename based on the common prefix of input filenames.
+
+    Parameters
+    ----------
+    input_files : List[Path]
+        List of input file paths
+
+    Returns
+    -------
+    Optional[Path]
+        Suggested output filename with "_merged" suffix, or None if no overlap
+
+    Examples
+    --------
+    >>> suggest_merged_filename([Path("session1_day1.dh5"), Path("session1_day2.dh5")])
+    Path("session1_merged.dh5")
+    >>> suggest_merged_filename([Path("file1.dh5"), Path("data2.dh5")])
+    None
+    """
+    if len(input_files) < 2:
+        return None
+
+    # Get basenames without extensions
+    basenames = [f.stem for f in input_files]
+
+    # Find the longest common prefix
+    if not basenames:
+        return None
+
+    # Start with the first basename as reference
+    common_prefix = basenames[0]
+
+    # Compare with all other basenames
+    for basename in basenames[1:]:
+        # Find common prefix between current common_prefix and this basename
+        new_prefix = ""
+        for i, (c1, c2) in enumerate(zip(common_prefix, basename)):
+            if c1 == c2:
+                new_prefix += c1
+            else:
+                break
+        common_prefix = new_prefix
+
+        # Early exit if no common prefix
+        if not common_prefix:
+            return None
+
+    # Remove trailing underscores, hyphens, or spaces from the common prefix
+    common_prefix = common_prefix.rstrip("_- ")
+
+    # Check if we have a meaningful overlap (at least 2 characters)
+    if len(common_prefix) < 2:
+        return None
+
+    # Use the directory of the first input file
+    output_dir = input_files[0].parent
+
+    # Create the suggested filename
+    suggested_name = f"{common_prefix}_merged.dh5"
+    return output_dir / suggested_name
+
+
 def select_files_gui() -> tuple[List[Path], Path, bool]:
     """
     Open a GUI to select input files, output file, and merge options.
@@ -906,11 +970,26 @@ def select_files_gui() -> tuple[List[Path], Path, bool]:
 
     input_files = [Path(f) for f in input_files_str]
 
-    # Select output file
+    # Suggest a merged filename based on overlap
+    suggested_filename = suggest_merged_filename(input_files)
+
+    if suggested_filename is None:
+        # No overlap - abort with message
+        messagebox.showerror(
+            "No Common Prefix",
+            "Cannot suggest a merged filename: input files have no common prefix.\n"
+            "Please ensure your files follow a consistent naming pattern.",
+        )
+        root.destroy()
+        return [], None, False
+
+    # Select output file with suggested name as default
     output_file_str = filedialog.asksaveasfilename(
         title="Select output file location",
         defaultextension=".dh5",
         filetypes=[("DH5 files", "*.dh5"), ("All files", "*.*")],
+        initialfile=suggested_filename.name,
+        initialdir=suggested_filename.parent,
     )
 
     if not output_file_str:
@@ -1024,7 +1103,11 @@ that are common to all input files.
         )
 
         parser.add_argument(
-            "-o", "--output", type=str, required=True, help="Output DH5 file path"
+            "-o",
+            "--output",
+            type=str,
+            required=False,
+            help="Output DH5 file path (if not specified, will auto-suggest based on common filename prefix)",
         )
 
         parser.add_argument(
@@ -1053,7 +1136,21 @@ that are common to all input files.
         try:
             # Convert input file paths
             input_files = [Path(f) for f in args.input_files]
-            output_file = Path(args.output)
+
+            # Determine output file
+            if args.output:
+                output_file = Path(args.output)
+            else:
+                # No output specified - suggest based on overlap
+                suggested_output = suggest_merged_filename(input_files)
+                if suggested_output is None:
+                    logger.error(
+                        "Cannot suggest a merged filename: input files have no common prefix.\n"
+                        "Please specify an output file with -o/--output or ensure your files follow a consistent naming pattern."
+                    )
+                    sys.exit(1)
+                output_file = suggested_output
+                logger.info(f"Suggested output filename: {output_file}")
 
             # Perform merge
             merge_dh5_files(
