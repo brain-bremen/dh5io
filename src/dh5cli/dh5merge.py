@@ -379,7 +379,7 @@ def merge_event_triggers(input_files: List[DH5File], output_file: DH5File) -> No
     for i, events in enumerate(all_event_triggers):
         if len(events) > 0:
             event_times = events["time"]
-            if not np.all(np.diff(event_times) > 0):
+            if not np.all(np.diff(event_times) >= 0):
                 logger.warning(
                     f"EV02 in file {i}: Event timestamps are not strictly increasing. "
                     f"This may indicate a data quality issue."
