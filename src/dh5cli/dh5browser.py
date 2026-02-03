@@ -433,17 +433,12 @@ def create_browser(
     # Store references to reusable viewer widgets
     trace_viewer_widget = None
     spike_viewer_widgets = []
-    event_epoch_viewer_widget = None  # Single viewer for all event types as epochs
     epoch_viewer_widgets = []
 
     # Function to load and display a trial
     def load_trial(trial_idx: int) -> None:
         """Load and display a specific trial by updating data sources in existing widgets."""
-        nonlocal \
-            trace_viewer_widget, \
-            spike_viewer_widgets, \
-            event_epoch_viewer_widget, \
-            epoch_viewer_widgets
+        nonlocal trace_viewer_widget, spike_viewer_widgets, epoch_viewer_widgets
 
         load_start = time.perf_counter()
         logger.info(f"Loading trial {trial_idx}...")
@@ -472,36 +467,7 @@ def create_browser(
         # Extract individual sources from the lists
         spike_sources = sources.get("spike", [])
         epoch_sources = sources.get("epoch", [])
-
-        # Convert Neo events to epoch format (one row per unique event label)
-        all_event_epochs = []
-        if seg.events:
-            logger.info(f"Converting {len(seg.events)} event arrays to epoch format")
-            for event in seg.events:
-                times = np.array([float(t.magnitude) for t in event.times])
-                labels = (
-                    event.labels
-                    if event.labels is not None
-                    else np.array([event.name] * len(times))
-                )
-
-                # Create one epoch channel per unique label
-                unique_labels = np.unique(labels)
-                for lbl in unique_labels:
-                    mask = labels == lbl
-                    label_times = times[mask]
-                    # Use 0.2 second duration so labels are visible but markers are still narrow
-                    label_durations = np.full(label_times.shape, 0.2)
-                    label_array = np.array([lbl] * len(label_times), dtype="U")
-                    all_event_epochs.append(
-                        {
-                            "time": label_times,
-                            "duration": label_durations,
-                            "label": label_array,
-                            "name": lbl,
-                        }
-                    )
-            logger.debug(f"  Created {len(all_event_epochs)} event-epoch channels")
+        # Event epochs are now created in the Neo reader as proper epochs
 
         # Combine all analog signals into a single multi-channel source
         initial_t_start = None
@@ -558,121 +524,32 @@ def create_browser(
                 if i < len(spike_viewer_widgets):
                     # Reuse existing viewer - update source data in-place
                     spike_viewer_widgets[i].source.all = source.all
-                    # Set time range to match trace viewer to prevent desynchronization
-                    if initial_t_start is not None and initial_t_stop is not None:
-                        spike_viewer_widgets[i].source._t_start = initial_t_start
-                        spike_viewer_widgets[i].source._t_stop = initial_t_stop
                     spike_viewer_widgets[i].refresh()
                 else:
                     # Create new viewer
-                    # Set time range to match trace viewer to prevent desynchronization
-                    if initial_t_start is not None and initial_t_stop is not None:
-                        source._t_start = initial_t_start
-                        source._t_stop = initial_t_stop
                     spike_view = ephyviewer.SpikeTrainViewer(
                         source=source, name=f"Spike Trains {i + 1}"
                     )
+                    spike_view.params["xsize"] = 10.0  # Match trace viewer
                     win.add_view(spike_view)
                     spike_viewer_widgets.append(spike_view)
                     view_count += 1
 
-        # Reuse or create event viewer (as EpochViewer with one row per event type)
-        if all_event_epochs:
-            # Create epoch source and set time range to match trace viewer
-            event_source = ephyviewer.InMemoryEpochSource(all_epochs=all_event_epochs)
-
-            # Set time range to match trace viewer to prevent disappearing on scroll
-            if initial_t_start is not None and initial_t_stop is not None:
-                event_source._t_start = initial_t_start
-                event_source._t_stop = initial_t_stop
-
-            if event_epoch_viewer_widget is None:
-                # Create new viewer on first load
-                event_view = ephyviewer.EpochViewer(source=event_source, name="Events")
-                event_view.params["display_labels"] = True
-                event_view.params["label_size"] = 12
-
-                # Assign distinct colors to each event type
-                if HAS_MATPLOTLIB and len(all_event_epochs) > 0:
-                    n = len(all_event_epochs)
-                    cmap = plt.get_cmap("tab20" if n <= 20 else "hsv")  # type: ignore
-                    for i in range(n):
-                        rgba = cmap(i / max(1, n - 1))
-                        color_hex = "#{:02x}{:02x}{:02x}".format(
-                            int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
-                        )
-                        event_view.by_channel_params.children()[i].param(
-                            "color"
-                        ).setValue(color_hex)
-
-                win.add_view(event_view)
-                event_epoch_viewer_widget = event_view
-                view_count += 1
-            else:
-                # Update existing viewer's source
-                event_epoch_viewer_widget.source.all = all_event_epochs
-                # Set time range to match trace viewer
-                if initial_t_start is not None and initial_t_stop is not None:
-                    event_epoch_viewer_widget.source._t_start = initial_t_start
-                    event_epoch_viewer_widget.source._t_stop = initial_t_stop
-                elif all_event_epochs:
-                    # Fallback: compute from event data if trace viewer not available
-                    s = [
-                        np.min(e["time"])
-                        for e in all_event_epochs
-                        if len(e["time"]) > 0
-                    ]
-                    event_epoch_viewer_widget.source._t_start = (
-                        min(s) if len(s) > 0 else 0.0
-                    )
-                    s = [
-                        np.max(e["time"] + e["duration"])
-                        for e in all_event_epochs
-                        if len(e["time"]) > 0
-                    ]
-                    event_epoch_viewer_widget.source._t_stop = (
-                        max(s) if len(s) > 0 else 0.0
-                    )
-
-                # Update colors if needed
-                if HAS_MATPLOTLIB and len(all_event_epochs) > 0:
-                    n = len(all_event_epochs)
-                    cmap = plt.get_cmap("tab20" if n <= 20 else "hsv")  # type: ignore
-                    for i in range(
-                        min(
-                            n,
-                            len(event_epoch_viewer_widget.by_channel_params.children()),
-                        )
-                    ):
-                        rgba = cmap(i / max(1, n - 1))
-                        color_hex = "#{:02x}{:02x}{:02x}".format(
-                            int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
-                        )
-                        event_epoch_viewer_widget.by_channel_params.children()[i].param(
-                            "color"
-                        ).setValue(color_hex)
-
-                event_epoch_viewer_widget.refresh()
-
-        # Reuse or create epoch viewers
+        # Reuse or create epoch viewers (including event epochs from Neo reader)
         if epoch_sources:
             for i, source in enumerate(epoch_sources):
                 if i < len(epoch_viewer_widgets):
                     # Reuse existing viewer - update source data in-place
                     epoch_viewer_widgets[i].source.all = source.all
-                    # Set time range to match trace viewer to prevent desynchronization
-                    if initial_t_start is not None and initial_t_stop is not None:
-                        epoch_viewer_widgets[i].source._t_start = initial_t_start
-                        epoch_viewer_widgets[i].source._t_stop = initial_t_stop
                     epoch_viewer_widgets[i].refresh()
                 else:
                     # Create new viewer
-                    # Set time range to match trace viewer to prevent desynchronization
-                    if initial_t_start is not None and initial_t_stop is not None:
-                        source._t_start = initial_t_start
-                        source._t_stop = initial_t_stop
                     epoch_view = ephyviewer.EpochViewer(
                         source=source, name=f"Epochs {i + 1}"
+                    )
+                    epoch_view.params["xsize"] = 10.0  # Match trace viewer
+                    epoch_view.params["color_mode"] = (
+                        "progressive"  # Different color per event type
                     )
                     win.add_view(epoch_view)
                     epoch_viewer_widgets.append(epoch_view)
@@ -686,7 +563,6 @@ def create_browser(
         if (
             trace_viewer_widget is None
             and len(spike_viewer_widgets) == 0
-            and event_epoch_viewer_widget is None
             and len(epoch_viewer_widgets) == 0
         ):
             logger.warning("No viewable data found in segment")
@@ -700,11 +576,18 @@ def create_browser(
 
         # Seek to the new trial's data start time
         if initial_t_start is not None:
-            logger.debug(f"Seeking all viewers to t={initial_t_start}")
+            logger.info(f"Seeking all viewers to t={initial_t_start}")
             step_start = time.perf_counter()
-            # Use MainViewer's seek to synchronize all views
+            # Explicitly seek each viewer to the new trial's start time
+            if trace_viewer_widget is not None:
+                trace_viewer_widget.seek(initial_t_start)
+            for spike_viewer in spike_viewer_widgets:
+                spike_viewer.seek(initial_t_start)
+            for epoch_viewer in epoch_viewer_widgets:
+                epoch_viewer.seek(initial_t_start)
+            # Also call MainViewer's seek to synchronize
             win.seek(initial_t_start)
-            logger.debug(
+            logger.info(
                 f"  seek({initial_t_start}): {time.perf_counter() - step_start:.3f}s"
             )
 

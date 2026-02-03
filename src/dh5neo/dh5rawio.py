@@ -195,10 +195,26 @@ class DH5RawIO(BaseRawIO):
     def _parse_event_channels(
         self,
     ) -> numpy.ndarray[typing.Any, numpy.dtype[_event_channel_dtype]]:
-        event_channels = numpy.array(
-            [("trials", "TRIALMAP", "epoch"), ("events", "EV02", "event")],
-            dtype=_event_channel_dtype,
-        )
+        # Start with trials and raw events
+        event_channels_list = [
+            ("trials", "TRIALMAP", "epoch"),
+            ("events", "EV02", "event"),
+        ]
+
+        # Discover unique event codes by scanning all events
+        events = self._file.get_events_array()
+        if events is not None and len(events) > 0:
+            event_codes = events["event"]
+            # Get unique absolute values of event codes (positive codes only)
+            unique_codes = sorted(set(abs(code) for code in event_codes if code != 0))
+
+            # Create one epoch channel per event type
+            for code in unique_codes:
+                event_channels_list.append(
+                    (f"event_epochs_{int(code)}", f"EV02_EPOCHS_{int(code)}", "epoch")
+                )
+
+        event_channels = numpy.array(event_channels_list, dtype=_event_channel_dtype)
         return event_channels
 
     def _parse_signal_streams(
@@ -599,10 +615,22 @@ class DH5RawIO(BaseRawIO):
             raise ValueError("Trialmap not yet parsed")
 
         event_channel = self.header.event_channels[event_channel_index]
+        event_channel_name = event_channel["name"]
+        if isinstance(event_channel_name, bytes):
+            event_channel_name = event_channel_name.decode("utf-8")
         event_type = event_channel["type"]
 
         if event_type == b"epoch":
-            # This is the trials/trialmap channel - return 1 for the current trial
+            # Check if this is the trials/trialmap channel
+            if event_channel_name == "trials":
+                return 1
+            # Otherwise it's an event_epochs_N channel - count paired epochs for this event type
+            elif event_channel_name.startswith("event_epochs_"):
+                event_code = int(event_channel_name.split("_")[-1])
+                timestamps, durations, labels = self._get_event_epochs(
+                    seg_index, event_code
+                )
+                return len(timestamps)
             return 1
         elif event_type == b"event":
             # This is the EV02 event channel
@@ -637,23 +665,32 @@ class DH5RawIO(BaseRawIO):
             raise ValueError("Trialmap not yet parsed")
 
         event_channel = self.header.event_channels[event_channel_index]
+        event_channel_name = event_channel["name"]
+        if isinstance(event_channel_name, bytes):
+            event_channel_name = event_channel_name.decode("utf-8")
+        event_id = event_channel["id"]
         event_type = event_channel["type"]
 
         if event_type == b"epoch":
-            # Return trial epoch information
-            trial = self._trialmap[seg_index]
-            trial_start_ns = trial["StartTime"]
-            trial_end_ns = trial["EndTime"]
-            duration_ns = trial_end_ns - trial_start_ns
+            if event_channel_name.startswith("event_epochs_"):
+                # Return onset/offset paired event epochs for this event type
+                event_code = int(event_channel_name.split("_")[-1])
+                return self._get_event_epochs(seg_index, event_code)
+            else:
+                # Return trial epoch information
+                trial = self._trialmap[seg_index]
+                trial_start_ns = trial["StartTime"]
+                trial_end_ns = trial["EndTime"]
+                duration_ns = trial_end_ns - trial_start_ns
 
-            # Epoch uses absolute time from DH5 file
-            timestamps = numpy.array([trial_start_ns], dtype=numpy.int64)
-            labels = numpy.array(
-                [f"Trial_{trial['TrialNo']}_Stim_{trial['StimNo']}"], dtype="U"
-            )
-            durations = numpy.array([duration_ns], dtype=numpy.int64)
+                # Epoch uses absolute time from DH5 file
+                timestamps = numpy.array([trial_start_ns], dtype=numpy.int64)
+                labels = numpy.array(
+                    [f"Trial_{trial['TrialNo']}_Stim_{trial['StimNo']}"], dtype="U"
+                )
+                durations = numpy.array([duration_ns], dtype=numpy.int64)
 
-            return timestamps, durations, labels
+                return timestamps, durations, labels
 
         elif event_type == b"event":
             # Return EV02 events
@@ -702,6 +739,126 @@ class DH5RawIO(BaseRawIO):
             numpy.array([], dtype=numpy.int64),
             numpy.array([], dtype=numpy.int64),
             numpy.array([], dtype="U"),
+        )
+
+    def _get_event_epochs(self, seg_index: int, event_code: int):
+        """
+        Pair onset/offset events into epochs for a specific event type.
+
+        Positive event codes (1, 2, 3) represent onset (trigger ON).
+        Negative event codes (-1, -2, -3) represent offset (trigger OFF).
+        Returns epochs from onset to offset with true durations for the specified event code.
+
+        Parameters
+        ----------
+        seg_index : int
+            Trial/segment index
+        event_code : int
+            The event code to pair (positive value, e.g., 1, 2, 3)
+
+        Returns
+        -------
+        timestamps : ndarray
+            Onset times in nanoseconds
+        durations : ndarray
+            Durations in nanoseconds
+        labels : ndarray
+            Labels for each epoch
+        """
+        # Get raw events for this trial
+        events = self._file.get_events_array()
+        if events is None:
+            return (
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype="U"),
+            )
+
+        # Get trial boundaries
+        trial_start_ns = self._trialmap[seg_index]["StartTime"]
+        trial_end_ns = self._trialmap[seg_index]["EndTime"]
+
+        # Filter events to trial
+        event_times = events["time"]
+        event_codes = events["event"]
+        mask = (event_times >= trial_start_ns) & (event_times < trial_end_ns)
+
+        trial_times = event_times[mask]
+        trial_codes = event_codes[mask]
+
+        if len(trial_times) == 0:
+            return (
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype="U"),
+            )
+
+        # Filter to only this event type (onsets and offsets)
+        onsets = []
+        offsets = []
+
+        for t, code in zip(trial_times, trial_codes):
+            if abs(code) == event_code:
+                if code > 0:
+                    onsets.append(t)
+                elif code < 0:
+                    offsets.append(t)
+
+        onsets = sorted(onsets)
+        offsets = sorted(offsets)
+
+        # Pair onsets with offsets
+        timestamps = []
+        durations = []
+        labels = []
+
+        if not onsets:
+            return (
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype="U"),
+            )
+
+        onset_idx = 0
+        offset_idx = 0
+
+        while onset_idx < len(onsets):
+            onset_time = onsets[onset_idx]
+
+            # Find next offset after this onset
+            while offset_idx < len(offsets) and offsets[offset_idx] <= onset_time:
+                offset_idx += 1
+
+            if offset_idx < len(offsets):
+                # Found matching offset
+                offset_time = offsets[offset_idx]
+                duration = offset_time - onset_time
+
+                if duration > 0:
+                    timestamps.append(onset_time)
+                    durations.append(duration)
+                    labels.append(f"Event_{int(event_code)}")
+
+                offset_idx += 1
+            else:
+                # No matching offset - use default 100ms duration
+                timestamps.append(onset_time)
+                durations.append(int(0.1 * 1e9))  # 100ms in nanoseconds
+                labels.append(f"Event_{int(event_code)}")
+
+            onset_idx += 1
+
+        if len(timestamps) == 0:
+            return (
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype=numpy.int64),
+                numpy.array([], dtype="U"),
+            )
+
+        return (
+            numpy.array(timestamps, dtype=numpy.int64),
+            numpy.array(durations, dtype=numpy.int64),
+            numpy.array(labels, dtype="U"),
         )
 
     def _rescale_event_timestamp(
