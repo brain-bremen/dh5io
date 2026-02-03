@@ -31,6 +31,17 @@ import numpy as np
 
 from dh5neo import DH5IO
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
+try:
+    import matplotlib.pyplot as plt
+
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+    logger.warning("matplotlib not available, event colors will not be customized")
+
 try:
     from PyQt5 import QtCore, QtWidgets
     from PyQt5.QtCore import pyqtSignal as Signal
@@ -45,9 +56,6 @@ except ImportError:
     except ImportError:
         print("Error: PyQt5 or PySide2 is required")
         sys.exit(1)
-
-# Configure logging
-logger = logging.getLogger(__name__)
 
 
 class SegmentCache:
@@ -425,7 +433,7 @@ def create_browser(
     # Store references to reusable viewer widgets
     trace_viewer_widget = None
     spike_viewer_widgets = []
-    event_viewer_widgets = []
+    event_epoch_viewer_widget = None  # Single viewer for all event types as epochs
     epoch_viewer_widgets = []
 
     # Function to load and display a trial
@@ -434,7 +442,7 @@ def create_browser(
         nonlocal \
             trace_viewer_widget, \
             spike_viewer_widgets, \
-            event_viewer_widgets, \
+            event_epoch_viewer_widget, \
             epoch_viewer_widgets
 
         load_start = time.perf_counter()
@@ -463,11 +471,41 @@ def create_browser(
 
         # Extract individual sources from the lists
         spike_sources = sources.get("spike", [])
-        event_sources = sources.get("event", [])
         epoch_sources = sources.get("epoch", [])
+
+        # Convert Neo events to epoch format (one row per unique event label)
+        all_event_epochs = []
+        if seg.events:
+            logger.info(f"Converting {len(seg.events)} event arrays to epoch format")
+            for event in seg.events:
+                times = np.array([float(t.magnitude) for t in event.times])
+                labels = (
+                    event.labels
+                    if event.labels is not None
+                    else np.array([event.name] * len(times))
+                )
+
+                # Create one epoch channel per unique label
+                unique_labels = np.unique(labels)
+                for lbl in unique_labels:
+                    mask = labels == lbl
+                    label_times = times[mask]
+                    # Use 0.2 second duration so labels are visible but markers are still narrow
+                    label_durations = np.full(label_times.shape, 0.2)
+                    label_array = np.array([lbl] * len(label_times), dtype="U")
+                    all_event_epochs.append(
+                        {
+                            "time": label_times,
+                            "duration": label_durations,
+                            "label": label_array,
+                            "name": lbl,
+                        }
+                    )
+            logger.debug(f"  Created {len(all_event_epochs)} event-epoch channels")
 
         # Combine all analog signals into a single multi-channel source
         initial_t_start = None
+        initial_t_stop = None
         if seg.analogsignals:
             logger.info(
                 f"Combining {len(seg.analogsignals)} analog signals into single viewer"
@@ -507,8 +545,10 @@ def create_browser(
                 # Update existing viewer's source with new data
                 logger.debug("Reusing existing TraceViewer, updating source data")
                 trace_viewer_widget.source.update_signals(seg.analogsignals)
-                # Store the new time range
-                initial_t_start = trace_viewer_widget.source.t_start
+
+            # Store the time range from the combined source (for both new and updated viewer)
+            initial_t_start = combined_source.t_start
+            initial_t_stop = combined_source.t_stop
 
         # Reuse or create spike train viewers
         logger.debug("Updating spike/event/epoch viewers")
@@ -516,49 +556,125 @@ def create_browser(
         if spike_sources:
             for i, source in enumerate(spike_sources):
                 if i < len(spike_viewer_widgets):
-                    # Reuse existing viewer
-                    spike_viewer_widgets[i].source = source
+                    # Reuse existing viewer - update source data in-place
+                    spike_viewer_widgets[i].source.all = source.all
+                    # Set time range to match trace viewer to prevent desynchronization
+                    if initial_t_start is not None and initial_t_stop is not None:
+                        spike_viewer_widgets[i].source._t_start = initial_t_start
+                        spike_viewer_widgets[i].source._t_stop = initial_t_stop
                     spike_viewer_widgets[i].refresh()
                 else:
                     # Create new viewer
+                    # Set time range to match trace viewer to prevent desynchronization
+                    if initial_t_start is not None and initial_t_stop is not None:
+                        source._t_start = initial_t_start
+                        source._t_stop = initial_t_stop
                     spike_view = ephyviewer.SpikeTrainViewer(
                         source=source, name=f"Spike Trains {i + 1}"
                     )
-                    win.add_view(spike_view, tabify_with="All Signals")
+                    win.add_view(spike_view)
                     spike_viewer_widgets.append(spike_view)
                     view_count += 1
 
-        # Reuse or create event viewers
-        if event_sources:
-            for i, source in enumerate(event_sources):
-                if i < len(event_viewer_widgets):
-                    # Reuse existing viewer
-                    event_viewer_widgets[i].source = source
-                    event_viewer_widgets[i].refresh()
-                else:
-                    # Create new viewer
-                    event_view = ephyviewer.EventList(
-                        source=source, name=f"Events {i + 1}"
+        # Reuse or create event viewer (as EpochViewer with one row per event type)
+        if all_event_epochs:
+            # Create epoch source and set time range to match trace viewer
+            event_source = ephyviewer.InMemoryEpochSource(all_epochs=all_event_epochs)
+
+            # Set time range to match trace viewer to prevent disappearing on scroll
+            if initial_t_start is not None and initial_t_stop is not None:
+                event_source._t_start = initial_t_start
+                event_source._t_stop = initial_t_stop
+
+            if event_epoch_viewer_widget is None:
+                # Create new viewer on first load
+                event_view = ephyviewer.EpochViewer(source=event_source, name="Events")
+                event_view.params["display_labels"] = True
+                event_view.params["label_size"] = 12
+
+                # Assign distinct colors to each event type
+                if HAS_MATPLOTLIB and len(all_event_epochs) > 0:
+                    n = len(all_event_epochs)
+                    cmap = plt.get_cmap("tab20" if n <= 20 else "hsv")  # type: ignore
+                    for i in range(n):
+                        rgba = cmap(i / max(1, n - 1))
+                        color_hex = "#{:02x}{:02x}{:02x}".format(
+                            int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+                        )
+                        event_view.by_channel_params.children()[i].param(
+                            "color"
+                        ).setValue(color_hex)
+
+                win.add_view(event_view)
+                event_epoch_viewer_widget = event_view
+                view_count += 1
+            else:
+                # Update existing viewer's source
+                event_epoch_viewer_widget.source.all = all_event_epochs
+                # Set time range to match trace viewer
+                if initial_t_start is not None and initial_t_stop is not None:
+                    event_epoch_viewer_widget.source._t_start = initial_t_start
+                    event_epoch_viewer_widget.source._t_stop = initial_t_stop
+                elif all_event_epochs:
+                    # Fallback: compute from event data if trace viewer not available
+                    s = [
+                        np.min(e["time"])
+                        for e in all_event_epochs
+                        if len(e["time"]) > 0
+                    ]
+                    event_epoch_viewer_widget.source._t_start = (
+                        min(s) if len(s) > 0 else 0.0
                     )
-                    win.add_view(
-                        event_view, location="bottom", orientation="horizontal"
+                    s = [
+                        np.max(e["time"] + e["duration"])
+                        for e in all_event_epochs
+                        if len(e["time"]) > 0
+                    ]
+                    event_epoch_viewer_widget.source._t_stop = (
+                        max(s) if len(s) > 0 else 0.0
                     )
-                    event_viewer_widgets.append(event_view)
-                    view_count += 1
+
+                # Update colors if needed
+                if HAS_MATPLOTLIB and len(all_event_epochs) > 0:
+                    n = len(all_event_epochs)
+                    cmap = plt.get_cmap("tab20" if n <= 20 else "hsv")  # type: ignore
+                    for i in range(
+                        min(
+                            n,
+                            len(event_epoch_viewer_widget.by_channel_params.children()),
+                        )
+                    ):
+                        rgba = cmap(i / max(1, n - 1))
+                        color_hex = "#{:02x}{:02x}{:02x}".format(
+                            int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+                        )
+                        event_epoch_viewer_widget.by_channel_params.children()[i].param(
+                            "color"
+                        ).setValue(color_hex)
+
+                event_epoch_viewer_widget.refresh()
 
         # Reuse or create epoch viewers
         if epoch_sources:
             for i, source in enumerate(epoch_sources):
                 if i < len(epoch_viewer_widgets):
-                    # Reuse existing viewer
-                    epoch_viewer_widgets[i].source = source
+                    # Reuse existing viewer - update source data in-place
+                    epoch_viewer_widgets[i].source.all = source.all
+                    # Set time range to match trace viewer to prevent desynchronization
+                    if initial_t_start is not None and initial_t_stop is not None:
+                        epoch_viewer_widgets[i].source._t_start = initial_t_start
+                        epoch_viewer_widgets[i].source._t_stop = initial_t_stop
                     epoch_viewer_widgets[i].refresh()
                 else:
                     # Create new viewer
+                    # Set time range to match trace viewer to prevent desynchronization
+                    if initial_t_start is not None and initial_t_stop is not None:
+                        source._t_start = initial_t_start
+                        source._t_stop = initial_t_stop
                     epoch_view = ephyviewer.EpochViewer(
                         source=source, name=f"Epochs {i + 1}"
                     )
-                    win.add_view(epoch_view, tabify_with="All Signals")
+                    win.add_view(epoch_view)
                     epoch_viewer_widgets.append(epoch_view)
                     view_count += 1
 
@@ -570,7 +686,7 @@ def create_browser(
         if (
             trace_viewer_widget is None
             and len(spike_viewer_widgets) == 0
-            and len(event_viewer_widgets) == 0
+            and event_epoch_viewer_widget is None
             and len(epoch_viewer_widgets) == 0
         ):
             logger.warning("No viewable data found in segment")

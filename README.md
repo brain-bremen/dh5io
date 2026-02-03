@@ -113,7 +113,7 @@ The browser displays:
 
 - **Analog signals** (CONT groups) - Multi-channel trace viewer
 - **Spike trains** (SPIKE groups) - Raster plots
-- **Events** (EV02) - Event timeline
+- **Events** (EV02) - Labeled vertical lines in a synchronized viewer
 - **Epochs** (TRIALMAP) - Trial markers
 
 **New in latest version:** Interactive trial navigation with caching
