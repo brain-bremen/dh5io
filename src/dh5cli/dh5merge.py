@@ -110,6 +110,10 @@ def merge_dh5_files(
         )
 
         try:
+            # Copy Operations group from first file to preserve processing history
+            logger.info("Copying Operations group from first file...")
+            copy_operations_from_first_file(input_dh5_files, output_dh5)
+
             # Merge each CONT block
             if cont_blocks_to_merge:
                 for cont_id in sorted(cont_blocks_to_merge):
@@ -671,6 +675,79 @@ def merge_wavelet_block(
         frequency_axis=frequency_axis,
         name=name,
         comment=comment,
+    )
+
+
+def copy_operations_from_first_file(
+    input_files: List[DH5File], output_file: DH5File
+) -> None:
+    """
+    Copy operations from the first input file to the output file.
+
+    This preserves the processing history from the first file in the merged output.
+    Operations are copied and renumbered to come after the output file's initial
+    "create_file" operation.
+
+    Parameters
+    ----------
+    input_files : List[DH5File]
+        List of input DH5 files
+    output_file : DH5File
+        Output DH5 file
+    """
+    from dh5io.operations import (
+        OPERATIONS_GROUP_NAME,
+        get_last_operation_index,
+        get_operations_group,
+    )
+
+    first_file = input_files[0]
+    source_operations = get_operations_group(first_file._file)
+    dest_operations = get_operations_group(output_file._file)
+
+    if source_operations is None:
+        logger.debug("No Operations group found in first file")
+        return
+
+    if dest_operations is None:
+        # This shouldn't happen since create_dh_file adds an operation
+        logger.warning("No Operations group in output file, creating one")
+        dest_operations = output_file._file.create_group(OPERATIONS_GROUP_NAME)
+        next_index = 0
+    else:
+        # Get the next available index in the output file
+        next_index = get_last_operation_index(output_file._file) + 1
+
+    # Copy each operation from the source, renumbering as needed
+    copied_count = 0
+    for op_name in sorted(source_operations.keys()):
+        # Extract the operation name without the index prefix
+        parts = op_name.split("_", 1)
+        if len(parts) == 2:
+            operation_name = parts[1]
+        else:
+            operation_name = op_name
+
+        # Skip 'create_file' operations from the first file since the merged file
+        # already has its own create_file operation
+        if operation_name == "create_file":
+            continue
+
+        # Create new operation name with the next index
+        new_op_name = f"{next_index:03}_{operation_name}"
+
+        # Copy the operation group
+        first_file._file.copy(
+            f"{OPERATIONS_GROUP_NAME}/{op_name}",
+            dest_operations,
+            name=new_op_name,
+        )
+
+        next_index += 1
+        copied_count += 1
+
+    logger.info(
+        f"Copied {copied_count} operation(s) from first file to output (renumbered starting at index {get_last_operation_index(output_file._file) - copied_count + 1})"
     )
 
 

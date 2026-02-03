@@ -738,3 +738,74 @@ def test_merge_multiple_files_with_varying_calibrations(temp_dir):
         # All sections should be identical
         assert np.allclose(section1, section2, rtol=1e-3)
         assert np.allclose(section2, section3, rtol=1e-3)
+
+
+def test_merge_preserves_operations_from_first_file(temp_dir):
+    """Test that the Operations group from the first file is preserved in the merged file."""
+    from dh5io.operations import add_operation_to_file, get_operations_group
+    import h5py
+
+    n_samples = 100
+    n_channels = 2
+    cont_id = 0
+
+    # Create first file with operations history
+    file1 = temp_dir / "test1.dh5"
+    create_test_dh5_file(file1, cont_id, n_samples, n_channels, start_time=0)
+    
+    # Add some operations to the first file
+    with h5py.File(file1, "r+") as f:
+        add_operation_to_file(
+            f,
+            new_operation_group_name="initial_recording",
+            tool="TestRecorder v1.0",
+            operator_name="Test User",
+        )
+        add_operation_to_file(
+            f,
+            new_operation_group_name="filter_data",
+            tool="TestFilter v2.0",
+            operator_name="Test User",
+        )
+    
+    # Create second file without operations
+    file2 = temp_dir / "test2.dh5"
+    create_test_dh5_file(file2, cont_id, n_samples, n_channels, start_time=1000000)
+
+    # Create third file without operations  
+    file3 = temp_dir / "test3.dh5"
+    create_test_dh5_file(file3, cont_id, n_samples, n_channels, start_time=2000000)
+
+    # Merge files
+    output_file = temp_dir / "merged.dh5"
+    merge_dh5_files([file1, file2, file3], output_file)
+
+    # Verify the merged file contains operations from first file + merge operation
+    with h5py.File(output_file, "r") as f:
+        operations_group = get_operations_group(f)
+        assert operations_group is not None, "Operations group should exist"
+        
+        # Should have 1 create_file + 2 operations from first file + 1 merge operation = 4 total
+        operation_names = list(operations_group.keys())
+        assert len(operation_names) == 4, f"Expected 4 operations, got {len(operation_names)}"
+        
+        # Check that first two operations are from the first file
+        # Check that merged file has its own create_file operation
+        assert "000_create_file" in operation_names
+        
+        # Check that operations from first file were copied
+        assert "001_initial_recording" in operation_names
+        assert "002_filter_data" in operation_names
+        
+        # Check that the merge operation was added
+        
+        # Check that the merge operation was added
+        assert "003_merge_files" in operation_names
+        
+        # Verify merge operation has the expected attributes
+        
+        # Verify merge operation has the expected attributes
+        merge_op = operations_group["003_merge_files"]
+        assert "MergedFiles" in merge_op.attrs
+        assert "NumberOfFiles" in merge_op.attrs
+        assert merge_op.attrs["NumberOfFiles"] == 3
