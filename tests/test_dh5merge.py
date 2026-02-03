@@ -552,3 +552,189 @@ def test_merge_without_output_filename(temp_dir):
     with DH5File(suggested, mode="r") as merged:
         cont = merged.get_cont_group_by_id(cont_id)
         assert cont.n_samples == 125  # 50 + 75
+
+
+def test_merge_with_different_calibrations(temp_dir):
+    """Test merging files with different calibration values preserves signal values."""
+    file1 = temp_dir / "calib1.dh5"
+    file2 = temp_dir / "calib2.dh5"
+    output = temp_dir / "merged.dh5"
+
+    n_samples = 100
+    n_channels = 2
+    cont_id = 0
+    sample_period = 1000  # 1 microsecond
+
+    # Create first file with calibration = [2.0, 3.0]
+    calibration1 = np.array([2.0, 3.0], dtype=np.float64)
+    data1 = np.array([[1000, 2000]] * n_samples, dtype=np.int16)  # Raw int16 values
+    # Real signal values: [2000.0, 6000.0] for each sample
+
+    index1 = create_empty_index_array(1)
+    index1[0]["time"] = 0
+    index1[0]["offset"] = 0
+
+    with create_dh_file(file1, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=data1,
+            index=index1,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration1,
+            name=f"CONT{cont_id}",
+        )
+
+    # Create second file with calibration = [4.0, 5.0]
+    calibration2 = np.array([4.0, 5.0], dtype=np.float64)
+    data2 = np.array([[500, 1200]] * n_samples, dtype=np.int16)  # Raw int16 values
+    # Real signal values: [2000.0, 6000.0] for each sample (same as file1!)
+
+    index2 = create_empty_index_array(1)
+    index2[0]["time"] = n_samples * sample_period  # Sequential data
+    index2[0]["offset"] = 0
+
+    with create_dh_file(file2, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=data2,
+            index=index2,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration2,
+            name=f"CONT{cont_id}",
+        )
+
+    # Merge files
+    merge_dh5_files([file1, file2], output)
+
+    # Verify merged file
+    with DH5File(output, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+
+        # Check basic properties
+        assert cont.n_samples == 2 * n_samples
+        assert cont.n_channels == n_channels
+
+        # Output should use first file's calibration
+        assert np.allclose(cont.calibration, calibration1)
+
+        # Get calibrated data from merged file
+        merged_calibrated = cont.calibrated_data
+
+        # First half should have original signal values from file1
+        expected_signal1 = data1.astype(np.float64) * calibration1
+        assert np.allclose(merged_calibrated[:n_samples], expected_signal1, rtol=1e-3)
+
+        # Second half should have original signal values from file2
+        # (converted through calibration2, then back through calibration1)
+        expected_signal2 = data2.astype(np.float64) * calibration2
+        assert np.allclose(merged_calibrated[n_samples:], expected_signal2, rtol=1e-3)
+
+        # Both halves should have the same signal values since we designed them that way
+        assert np.allclose(
+            merged_calibrated[:n_samples], merged_calibrated[n_samples:], rtol=1e-3
+        )
+
+
+def test_merge_multiple_files_with_varying_calibrations(temp_dir):
+    """Test merging 3+ files with varying calibration values."""
+    file1 = temp_dir / "calib1.dh5"
+    file2 = temp_dir / "calib2.dh5"
+    file3 = temp_dir / "calib3.dh5"
+    output = temp_dir / "merged_multi.dh5"
+
+    n_samples = 50
+    n_channels = 2
+    cont_id = 0
+    sample_period = 1000
+
+    # File 1: calibration = [1.0, 2.0]
+    calibration1 = np.array([1.0, 2.0], dtype=np.float64)
+    # Choose signal values: [100.0, 200.0]
+    signal_values = np.array([100.0, 200.0], dtype=np.float64)
+    data1 = (signal_values / calibration1).astype(np.int16)
+
+    index1 = create_empty_index_array(1)
+    index1[0]["time"] = 0
+    index1[0]["offset"] = 0
+
+    with create_dh_file(file1, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data1, (n_samples, 1)),
+            index=index1,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration1,
+            name=f"CONT{cont_id}",
+        )
+
+    # File 2: calibration = [0.5, 1.0] (different from file 1)
+    calibration2 = np.array([0.5, 1.0], dtype=np.float64)
+    data2 = (signal_values / calibration2).astype(np.int16)
+
+    index2 = create_empty_index_array(1)
+    index2[0]["time"] = n_samples * sample_period
+    index2[0]["offset"] = 0
+
+    with create_dh_file(file2, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data2, (n_samples, 1)),
+            index=index2,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration2,
+            name=f"CONT{cont_id}",
+        )
+
+    # File 3: calibration = [2.0, 4.0] (different from both)
+    calibration3 = np.array([2.0, 4.0], dtype=np.float64)
+    data3 = (signal_values / calibration3).astype(np.int16)
+
+    index3 = create_empty_index_array(1)
+    index3[0]["time"] = 2 * n_samples * sample_period
+    index3[0]["offset"] = 0
+
+    with create_dh_file(file3, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data3, (n_samples, 1)),
+            index=index3,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration3,
+            name=f"CONT{cont_id}",
+        )
+
+    # Merge all three files
+    merge_dh5_files([file1, file2, file3], output)
+
+    # Verify merged file
+    with DH5File(output, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+
+        # Check basic properties
+        assert cont.n_samples == 3 * n_samples
+        assert cont.n_channels == n_channels
+
+        # Output uses first file's calibration
+        assert np.allclose(cont.calibration, calibration1)
+
+        # Get calibrated data
+        merged_calibrated = cont.calibrated_data
+
+        # All three sections should have the same signal values
+        section1 = merged_calibrated[:n_samples]
+        section2 = merged_calibrated[n_samples : 2 * n_samples]
+        section3 = merged_calibrated[2 * n_samples :]
+
+        # Each section should match the expected signal values
+        assert np.allclose(section1[0], signal_values, rtol=1e-3)
+        assert np.allclose(section2[0], signal_values, rtol=1e-3)
+        assert np.allclose(section3[0], signal_values, rtol=1e-3)
+
+        # All sections should be identical
+        assert np.allclose(section1, section2, rtol=1e-3)
+        assert np.allclose(section2, section3, rtol=1e-3)

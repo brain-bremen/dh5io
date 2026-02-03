@@ -238,7 +238,7 @@ def merge_cont_block(
     signal_type = first_cont.signal_type
 
     # Concatenate data and merge indices
-    merged_data, merged_index = concatenate_cont_data(cont_blocks)
+    merged_data, merged_index = concatenate_cont_data(cont_blocks, calibration)
 
     # Create merged CONT block in output file
     create_cont_group_from_data_in_file(
@@ -762,7 +762,10 @@ def validate_cont_blocks_compatible(cont_blocks: List[Cont], cont_id: int) -> No
 
         if first_calib is not None and cont_calib is not None:
             if not np.allclose(first_calib, cont_calib):
-                logger.warning(f"CONT{cont_id}: Calibration values differ in file {i}")
+                logger.info(
+                    f"CONT{cont_id}: Calibration values differ in file {i}. "
+                    f"Will perform conversion to preserve signal values."
+                )
 
     # Validate that data is sequential (non-overlapping in time)
     for i in range(len(cont_blocks) - 1):
@@ -845,31 +848,76 @@ def merge_index_arrays_with_shapes(
 
 
 # Update concatenate_cont_data to use the improved version
-def concatenate_cont_data(cont_blocks: List[Cont]) -> tuple[np.ndarray, np.ndarray]:
+def concatenate_cont_data(
+    cont_blocks: List[Cont], output_calibration: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Concatenate DATA arrays and merge INDEX datasets from multiple CONT blocks.
 
     The INDEX dataset is updated so that offsets reflect the concatenated DATA array.
     Time stamps are preserved from the original recordings.
 
+    If calibration values differ between files, this function:
+    1. Converts raw int16 data to float64 using each file's calibration
+    2. Concatenates the calibrated float64 arrays
+    3. Converts back to int16 using the output calibration value
+
     Parameters
     ----------
     cont_blocks : List[Cont]
         List of CONT blocks to concatenate
+    output_calibration : np.ndarray | None
+        Calibration values to use for the output file. If None, no calibration
+        conversion is performed (data is concatenated as raw int16).
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
-        Merged data array and merged index array
+        Merged data array (int16) and merged index array
     """
-    # Collect all data arrays
-    data_arrays = [cont.data for cont in cont_blocks]
+    # Check if we need to handle calibration conversion
+    calibrations = [cont.calibration for cont in cont_blocks]
+    needs_conversion = False
 
-    # Concatenate along the samples axis (axis 0)
-    merged_data = np.concatenate(data_arrays, axis=0)
+    # Only perform conversion if calibrations exist and differ
+    if output_calibration is not None and all(cal is not None for cal in calibrations):
+        # Check if any calibration differs from others
+        for i, cal in enumerate(calibrations):
+            if i > 0 and not np.allclose(cal, calibrations[0]):
+                needs_conversion = True
+                break
+
+    if needs_conversion:
+        logger.info(
+            "Calibration values differ between files. "
+            "Performing data conversion to preserve signal values during merge."
+        )
+        # Convert each block to calibrated float64, concatenate, then convert back
+        calibrated_arrays = []
+        for cont in cont_blocks:
+            # Convert int16 to float64 using the source file's calibration
+            calibrated_data = cont.data.astype(np.float64) * cont.calibration
+            calibrated_arrays.append(calibrated_data)
+
+        # Concatenate calibrated float64 arrays
+        merged_calibrated = np.concatenate(calibrated_arrays, axis=0)
+
+        # Convert back to int16 using output calibration
+        merged_data_float = merged_calibrated / output_calibration
+
+        # Clip to int16 range and convert
+        merged_data_float = np.clip(merged_data_float, -32768, 32767)
+        merged_data = merged_data_float.astype(np.int16)
+
+        data_shapes = [arr.shape for arr in calibrated_arrays]
+    else:
+        # No calibration conversion needed - use raw int16 data directly
+        logger.debug("Calibration values match. Concatenating raw int16 data.")
+        data_arrays = [cont.data for cont in cont_blocks]
+        merged_data = np.concatenate(data_arrays, axis=0)
+        data_shapes = [arr.shape for arr in data_arrays]
 
     # Merge index arrays with knowledge of data shapes
-    data_shapes = [arr.shape for arr in data_arrays]
     merged_index = merge_index_arrays_with_shapes(
         [cont.index for cont in cont_blocks], data_shapes
     )
