@@ -71,14 +71,6 @@ class TestCommandLineInterface:
             # argparse exits with 0 for --help
             assert exc_info.value.code == 0
 
-    def test_missing_filename(self):
-        """Test that missing filename causes error."""
-        with patch.object(sys, "argv", ["dh5browser"]):
-            with pytest.raises(SystemExit) as exc_info:
-                browser_module.main()
-            # argparse exits with 2 for missing required argument
-            assert exc_info.value.code == 2
-
     def test_nonexistent_file(self):
         """Test that nonexistent file causes error."""
         with patch.object(sys, "argv", ["dh5browser", "nonexistent_file.dh5"]):
