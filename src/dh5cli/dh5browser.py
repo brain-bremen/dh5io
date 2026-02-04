@@ -234,6 +234,66 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         pass  # Navigation widget doesn't display time-based data
 
 
+class TrialInfoWidget(QtWidgets.QWidget):  # type: ignore[misc]
+    """Widget to display trial metadata (TrialNo, StimNo, Outcome)."""
+
+    time_changed = Signal(float, float)  # Required by ephyviewer (t_start, t_stop)
+
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        parent : QWidget, optional
+            Parent widget
+        """
+        super().__init__(parent)
+        self.name = "Trial Info"  # Required by ephyviewer
+        self.source = None  # Required by ephyviewer (no data source)
+
+        # Create layout
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Info label
+        self.label = QtWidgets.QLabel("Trial Info: No trial loaded")
+        self.label.setStyleSheet("font-weight: bold; padding: 5px;")
+        layout.addWidget(self.label)
+
+        # Stretch to keep label compact
+        layout.addStretch()
+
+    def update_trial_info(self, trial_no: int, stim_no: int, outcome: int) -> None:
+        """Update the displayed trial information.
+
+        Parameters
+        ----------
+        trial_no : int
+            Trial number from TRIALMAP
+        stim_no : int
+            Stimulus/trial type number from TRIALMAP
+        outcome : int
+            Outcome code from TRIALMAP
+        """
+        self.label.setText(
+            f"Trial Info: TrialNo={trial_no}, TrialTypeNo={stim_no}, Outcome={outcome}"
+        )
+
+    def get_settings(self) -> Dict[str, int]:
+        """Get widget settings for ephyviewer persistence."""
+        return {}
+
+    def set_settings(self, settings: Dict[str, int]) -> None:
+        """Set widget settings for ephyviewer persistence."""
+        pass
+
+    def seek(self, t: float) -> None:
+        """Dummy seek method required by ephyviewer (info widget doesn't need to seek)."""
+        pass
+
+
 class CombinedAnalogSignalSource:
     """
     Custom ephyviewer source that combines multiple analog signals into one multi-channel source.
@@ -356,7 +416,7 @@ class CombinedAnalogSignalSource:
 
 def create_browser(
     dh5_file: pathlib.Path, trial_index: int = 0, cache_size: int = 10
-) -> ephyviewer.MainViewer:
+) -> Tuple[ephyviewer.MainViewer, str]:
     """
     Create an ephyviewer MainViewer window for a DH5 file with trial navigation.
 
@@ -427,17 +487,24 @@ def create_browser(
         show_global_xsize=True,
         settings_name=f"dh5browser_{dh5_file.stem}",
     )
+    # Set window title to show filename
+    win.setWindowTitle(f"DH5 Browser - {dh5_file.name}")
     logger.debug(f"  MainViewer created: {time.perf_counter() - step_start:.3f}s")
 
     # Store references to reusable viewer widgets
     trace_viewer_widget = None
     spike_viewer_widgets = []
     epoch_viewer_widgets = []
+    trial_info_widget = None
 
     # Function to load and display a trial
     def load_trial(trial_idx: int) -> None:
         """Load and display a specific trial by updating data sources in existing widgets."""
-        nonlocal trace_viewer_widget, spike_viewer_widgets, epoch_viewer_widgets
+        nonlocal \
+            trace_viewer_widget, \
+            spike_viewer_widgets, \
+            epoch_viewer_widgets, \
+            trial_info_widget
 
         load_start = time.perf_counter()
         logger.info(f"Loading trial {trial_idx}...")
@@ -621,8 +688,27 @@ def create_browser(
         load_elapsed = time.perf_counter() - load_start
         logger.info(f"Trial {trial_idx} loaded in {load_elapsed:.3f}s")
 
+        # Update trial info widget with metadata from segment annotations
+        if trial_info_widget is not None and hasattr(seg, "annotations"):
+            trial_no = seg.annotations.get("trial_no", "N/A")
+            stim_no = seg.annotations.get("stim_no", "N/A")
+            outcome = seg.annotations.get("outcome", "N/A")
+            trial_info_widget.update_trial_info(trial_no, stim_no, outcome)
+
     # Load initial trial
     load_trial(trial_index)
+
+    # Add trial info widget
+    logger.debug("Adding trial info widget")
+    trial_info_widget = TrialInfoWidget()
+    win.add_view(trial_info_widget, location="top", orientation="horizontal")
+    # Update with initial trial info
+    initial_segment = cache.get_segment(trial_index)
+    if hasattr(initial_segment, "annotations"):
+        trial_no = initial_segment.annotations.get("trial_no", "N/A")
+        stim_no = initial_segment.annotations.get("stim_no", "N/A")
+        outcome = initial_segment.annotations.get("outcome", "N/A")
+        trial_info_widget.update_trial_info(trial_no, stim_no, outcome)
 
     # Add navigation widget if there are multiple trials
     if nb_segments > 1:
@@ -643,7 +729,7 @@ def create_browser(
     overall_elapsed = time.perf_counter() - overall_start
     logger.info(f"Browser ready in {overall_elapsed:.3f}s")
 
-    return win
+    return win, dh5_file.name
 
 
 def main() -> None:
@@ -705,7 +791,7 @@ using an interactive viewer based on ephyviewer.
 
     # Create and show browser window
     try:
-        win = create_browser(
+        win, filename = create_browser(
             dh5_file, trial_index=args.trial, cache_size=args.cache_size
         )
 

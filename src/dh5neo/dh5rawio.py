@@ -183,6 +183,18 @@ class DH5RawIO(BaseRawIO):
             f"    _generate_minimal_annotations(): {time.perf_counter() - step:.3f}s"
         )
 
+        # Add trialmap annotations to segments
+        if self._trialmap is not None and len(self._trialmap) > 0:
+            block_index = 0
+            bl_ann = self.raw_annotations["blocks"][block_index]
+            for seg_index in range(len(self._trialmap)):
+                seg_ann = bl_ann["segments"][seg_index]
+                trial = self._trialmap[seg_index]
+                seg_ann["trial_no"] = int(trial["TrialNo"])
+                seg_ann["stim_no"] = int(trial["StimNo"])
+                seg_ann["trial_type_no"] = int(trial["StimNo"])  # Alias for StimNo
+                seg_ann["outcome"] = int(trial["Outcome"])
+
         logger.debug(
             f"  _parse_header() total: {time.perf_counter() - parse_start:.3f}s"
         )
