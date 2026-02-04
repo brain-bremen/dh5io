@@ -29,6 +29,7 @@ except ImportError:
 import neo
 import numpy as np
 
+from dh5io import DH5File
 from dh5neo import DH5IO
 
 # Configure logging
@@ -414,6 +415,148 @@ class CombinedAnalogSignalSource:
         return int((time - self.t_start) * self.sample_rate)
 
 
+def create_global_event_epoch_sources(dh5_file: pathlib.Path):
+    """
+    Create a single ephyviewer epoch source from ALL events and trials in the DH5 file.
+
+    This bypasses the Neo segment filtering to load all events and trials globally,
+    so they can be displayed across all trials without reloading.
+    All event types and trial epochs are combined into a single source with multiple channels.
+
+    Parameters
+    ----------
+    dh5_file : pathlib.Path
+        Path to the DH5 file
+
+    Returns
+    -------
+    tuple or None
+        (source, name) tuple with the combined epoch source, or None if no events
+    """
+    # Open DH5 file directly to access raw events and trials
+    dh5 = DH5File(dh5_file, "r")
+
+    # Create one channel per event type, all in a single epoch source
+    all_epochs = []
+
+    # First, add ALL trial epochs as the first channel
+    trialmap = dh5.get_trialmap()
+    if trialmap is not None and len(trialmap) > 0:
+        trial_times = []
+        trial_durations = []
+        trial_labels = []
+
+        for trial in trialmap:
+            start_time = trial["StartTime"] / 1e9  # Convert ns to seconds
+            end_time = trial["EndTime"] / 1e9  # Convert ns to seconds
+            duration = end_time - start_time
+
+            trial_times.append(start_time)
+            trial_durations.append(duration)
+            trial_labels.append(f"Trial_{trial['TrialNo']}_Stim_{trial['StimNo']}")
+
+        all_epochs.append(
+            {
+                "name": "trials",
+                "time": np.array(trial_times, dtype=np.float64),
+                "duration": np.array(trial_durations, dtype=np.float64),
+                "label": np.array(trial_labels, dtype="U"),
+            }
+        )
+        logger.debug(f"Added trial epochs channel with {len(trial_times)} trials")
+
+    # Get all events from the file
+    all_events = dh5.get_events_array()
+
+    if all_events is None or len(all_events) == 0:
+        logger.debug("No events found in DH5 file")
+        if not all_epochs:
+            return None
+    else:
+        logger.debug(f"Found {len(all_events)} total events in file")
+
+        # Get unique event codes (positive values only)
+        event_codes = all_events["event"]
+        unique_codes = sorted(set(abs(code) for code in event_codes if code != 0))
+
+        logger.debug(f"Unique event codes: {unique_codes}")
+
+        for event_code in unique_codes:
+            # Find onsets (positive) and offsets (negative) for this event type
+            onsets = []
+            offsets = []
+
+            for t, code in zip(all_events["time"], all_events["event"]):
+                if abs(code) == event_code:
+                    if code > 0:
+                        onsets.append(t)
+                    elif code < 0:
+                        offsets.append(t)
+
+            onsets = sorted(onsets)
+            offsets = sorted(offsets)
+
+            if not onsets:
+                continue
+
+            # Pair onsets with offsets
+            epoch_times = []
+            epoch_durations = []
+            epoch_labels = []
+            onset_idx = 0
+            offset_idx = 0
+
+            while onset_idx < len(onsets):
+                onset_time = onsets[onset_idx]
+
+                # Find next offset after this onset
+                while offset_idx < len(offsets) and offsets[offset_idx] <= onset_time:
+                    offset_idx += 1
+
+                if offset_idx < len(offsets):
+                    # Found matching offset
+                    offset_time = offsets[offset_idx]
+                    duration = offset_time - onset_time
+
+                    if duration > 0:
+                        epoch_times.append(onset_time / 1e9)  # Convert ns to seconds
+                        epoch_durations.append(duration / 1e9)  # Convert ns to seconds
+                        epoch_labels.append(f"Event_{event_code}")
+                    offset_idx += 1
+                else:
+                    # No matching offset - use default 100ms duration
+                    epoch_times.append(onset_time / 1e9)  # Convert ns to seconds
+                    epoch_durations.append(0.1)  # 100ms default
+                    epoch_labels.append(f"Event_{event_code}")
+
+                onset_idx += 1
+
+            if epoch_times:
+                # Add this event type as a channel
+                all_epochs.append(
+                    {
+                        "name": f"Event_{event_code}",
+                        "time": np.array(epoch_times, dtype=np.float64),
+                        "duration": np.array(epoch_durations, dtype=np.float64),
+                        "label": np.array(epoch_labels, dtype="U"),
+                    }
+                )
+                logger.debug(
+                    f"Added channel for Event_{event_code} with {len(epoch_times)} epochs"
+                )
+
+    if not all_epochs:
+        return None
+
+    # Create single ephyviewer InMemoryEpochSource with all event types and trials as channels
+    source = ephyviewer.InMemoryEpochSource(all_epochs=all_epochs)
+    logger.info(
+        f"Created combined epoch source with {len(all_epochs)} channels (trials + events)"
+    )
+
+    return (source, "Trials and Events")
+
+
 def create_browser(
     dh5_file: pathlib.Path, trial_index: int = 0, cache_size: int = 10
 ) -> Tuple[ephyviewer.MainViewer, str]:
@@ -491,10 +634,21 @@ def create_browser(
     win.setWindowTitle(f"DH5 Browser - {dh5_file.name}")
     logger.debug(f"  MainViewer created: {time.perf_counter() - step_start:.3f}s")
 
+    # Create global event epoch source (loaded once, not per trial)
+    logger.debug("Loading global event epoch source")
+    step_start = time.perf_counter()
+    global_event_epoch_source = create_global_event_epoch_sources(dh5_file)
+    logger.debug(
+        f"  Global event epochs loaded: {time.perf_counter() - step_start:.3f}s"
+    )
+    if global_event_epoch_source:
+        logger.debug("  Found event epoch source with multiple channels")
+
     # Store references to reusable viewer widgets
     trace_viewer_widget = None
     spike_viewer_widgets = []
     epoch_viewer_widgets = []
+
     trial_info_widget = None
 
     # Function to load and display a trial
@@ -532,8 +686,7 @@ def create_browser(
 
         # Extract individual sources from the lists
         spike_sources = sources.get("spike", [])
-        epoch_sources = sources.get("epoch", [])
-        # Event epochs are now created in the Neo reader as proper epochs
+        # No longer need to extract trial epochs - they're loaded globally
 
         # Combine all analog signals into a single multi-channel source
         initial_t_start = None
@@ -584,8 +737,10 @@ def create_browser(
                 trace_viewer_widget.initialize_plot()
 
             # Store the time range from the actual source being used by the viewer
-            initial_t_start = trace_viewer_widget.source.t_start
-            initial_t_stop = trace_viewer_widget.source.t_stop
+            # trace_viewer_widget is guaranteed non-None here
+            viewer_source = trace_viewer_widget.source
+            initial_t_start = viewer_source.t_start
+            initial_t_stop = viewer_source.t_stop
 
         # Reuse or create spike train viewers
         logger.debug("Updating spike/event/epoch viewers")
@@ -607,41 +762,8 @@ def create_browser(
                     spike_viewer_widgets.append(spike_view)
                     view_count += 1
 
-        # Reuse or create epoch viewers (including event epochs from Neo reader)
-        if epoch_sources:
-            for i, source in enumerate(epoch_sources):
-                if i < len(epoch_viewer_widgets):
-                    # Reuse existing viewer - update source data in-place
-                    epoch_viewer_widgets[i].source.all = source.all
-                    epoch_viewer_widgets[i].refresh()
-                    epoch_viewer_widgets[i].initialize_plot()
-                else:
-                    # Create new viewer
-                    epoch_view = ephyviewer.EpochViewer(
-                        source=source, name=f"Epochs {i + 1}"
-                    )
-                    epoch_view.params["xsize"] = 10.0  # Match trace viewer
-                    win.add_view(epoch_view)
-                    epoch_viewer_widgets.append(epoch_view)
-                    view_count += 1
-
-                    # Apply progressive colors to distinguish event types
-                    import matplotlib.cm
-                    import matplotlib.colors
-                    import numpy
-
-                    n_channels = source.nb_channel
-                    cmap = matplotlib.cm.get_cmap("Dark2", n_channels)
-
-                    epoch_view.by_channel_params.blockSignals(True)
-                    for c in range(n_channels):
-                        color = [
-                            int(e * 255)
-                            for e in matplotlib.colors.ColorConverter().to_rgb(cmap(c))
-                        ]
-                        epoch_view.by_channel_params[f"ch{c}", "color"] = color
-                    epoch_view.by_channel_params.blockSignals(False)
-                    epoch_view.refresh()
+        # NOTE: Epoch viewers are NOT updated here since we use global epoch sources
+        # that include both trials and events and don't change when switching trials
 
         if view_count > 0:
             logger.debug(
@@ -698,6 +820,42 @@ def create_browser(
     # Load initial trial
     load_trial(trial_index)
 
+    # Add global epoch viewer with ALL trials and events (created once, never reloaded)
+    if global_event_epoch_source:
+        logger.debug("Adding global epoch viewer with trials and events")
+        source, source_name = global_event_epoch_source
+
+        epoch_view = ephyviewer.EpochViewer(source=source, name=source_name)
+        epoch_view.params["xsize"] = 10.0  # Match trace viewer
+        win.add_view(epoch_view)
+
+        # Apply colors to distinguish event types
+        if HAS_MATPLOTLIB:
+            import matplotlib.cm
+            import matplotlib.colors
+
+            n_channels = source.nb_channel
+            cmap = matplotlib.cm.get_cmap("tab10", n_channels)
+
+            epoch_view.by_channel_params.blockSignals(True)
+            for c in range(n_channels):
+                color = [
+                    int(e * 255)
+                    for e in matplotlib.colors.ColorConverter().to_rgb(cmap(c))
+                ]
+                epoch_view.by_channel_params[f"ch{c}", "color"] = color
+            epoch_view.by_channel_params.blockSignals(False)
+            epoch_view.refresh()
+
+        # Add to list for synchronization
+        epoch_viewer_widgets.append(epoch_view)
+
+        # Sync with other viewers if trace viewer exists
+        if trace_viewer_widget is not None and hasattr(
+            trace_viewer_widget.source, "t_start"
+        ):
+            epoch_view.seek(trace_viewer_widget.source.t_start)
+
     # Add trial info widget
     logger.debug("Adding trial info widget")
     trial_info_widget = TrialInfoWidget()
@@ -748,7 +906,12 @@ using an interactive viewer based on ephyviewer.
         """,
     )
 
-    parser.add_argument("filename", type=str, help="Path to DH5 file to open")
+    parser.add_argument(
+        "filename",
+        type=str,
+        nargs="?",
+        help="Path to DH5 file to open (optional, will show file picker if not provided)",
+    )
     parser.add_argument(
         "-t",
         "--trial",
@@ -777,8 +940,34 @@ using an interactive viewer based on ephyviewer.
         format="%(message)s",
     )
 
+    # Initialize app variable
+    app = None
+
+    # Get filename from argument or file picker
+    if args.filename:
+        dh5_file = pathlib.Path(args.filename)
+    else:
+        # Create Qt application early for file picker
+        app = ephyviewer.mkQApp()
+
+        # Show file picker dialog
+        file_dialog = QtWidgets.QFileDialog()
+        file_dialog.setWindowTitle("Select DH5 File")
+        file_dialog.setNameFilter("DH5 Files (*.dh5);;All Files (*)")
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFile)
+
+        if file_dialog.exec():
+            selected_files = file_dialog.selectedFiles()
+            if selected_files:
+                dh5_file = pathlib.Path(selected_files[0])
+            else:
+                print("No file selected. Exiting.")
+                sys.exit(0)
+        else:
+            print("No file selected. Exiting.")
+            sys.exit(0)
+
     # Validate file path
-    dh5_file = pathlib.Path(args.filename)
     if not dh5_file.exists():
         print(f"Error: File not found: {dh5_file}")
         sys.exit(1)
@@ -786,8 +975,9 @@ using an interactive viewer based on ephyviewer.
     if not dh5_file.suffix == ".dh5":
         print(f"Warning: File does not have .dh5 extension: {dh5_file}")
 
-    # Create Qt application
-    app = ephyviewer.mkQApp()
+    # Create Qt application (if not already created for file picker)
+    if app is None:
+        app = ephyviewer.mkQApp()
 
     # Create and show browser window
     try:
