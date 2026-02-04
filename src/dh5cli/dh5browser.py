@@ -35,6 +35,10 @@ from dh5neo import DH5IO
 logger = logging.getLogger(__name__)
 
 try:
+    import matplotlib
+
+    # Set backend before importing pyplot to avoid premature Qt initialization
+    matplotlib.use("Agg")  # Use non-interactive backend
     import matplotlib.pyplot as plt
 
     HAS_MATPLOTLIB = True
@@ -43,19 +47,14 @@ except ImportError:
     logger.warning("matplotlib not available, event colors will not be customized")
 
 try:
-    from PyQt5 import QtCore, QtWidgets
-    from PyQt5.QtCore import pyqtSignal as Signal
+    from PySide6 import QtCore, QtWidgets
+    from PySide6.QtCore import Signal
 
     Qt = QtCore.Qt
 except ImportError:
-    try:
-        from PySide2 import QtCore, QtWidgets  # type: ignore
-        from PySide2.QtCore import Signal  # type: ignore
-
-        Qt = QtCore.Qt
-    except ImportError:
-        print("Error: PyQt5 or PySide2 is required")
-        sys.exit(1)
+    print("Error: PySide6 is required for dh5browser")
+    print("Install with: pip install PySide6")
+    sys.exit(1)
 
 
 class SegmentCache:
