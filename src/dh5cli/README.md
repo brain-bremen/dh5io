@@ -40,7 +40,7 @@ pip install dh5io[browser]
 pip install dh5io[all]
 ```
 
-This installs `ephyviewer`, `neo`, and Qt dependencies (PyQt5/PySide6).
+This installs `ephyviewer`, `neo`, and `PySide6` (Qt6 framework).
 
 #### Current Limitations
 

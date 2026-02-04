@@ -1,0 +1,20 @@
+# Sphinx build outputs
+build/
+_build/
+
+# Sphinx cache
+source/_autosummary/
+source/generated/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
