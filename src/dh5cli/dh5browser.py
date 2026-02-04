@@ -475,18 +475,21 @@ def create_browser(
             logger.info(
                 f"Combining {len(seg.analogsignals)} analog signals into single viewer"
             )
-            step_start = time.perf_counter()
-            combined_source = CombinedAnalogSignalSource(seg.analogsignals)
-            logger.debug(
-                f"  CombinedAnalogSignalSource created: {time.perf_counter() - step_start:.3f}s"
-            )
-            logger.debug(f"  Shape: {combined_source.get_shape()}")
-            logger.debug(f"  Channels: {combined_source.nb_channel}")
-            logger.debug(f"  Memory: {combined_source._data.nbytes / (1024**2):.1f} MB")
 
             # Reuse or create TraceViewer
             if trace_viewer_widget is None:
                 # Create new viewer on first load
+                step_start = time.perf_counter()
+                combined_source = CombinedAnalogSignalSource(seg.analogsignals)
+                logger.debug(
+                    f"  CombinedAnalogSignalSource created: {time.perf_counter() - step_start:.3f}s"
+                )
+                logger.debug(f"  Shape: {combined_source.get_shape()}")
+                logger.debug(f"  Channels: {combined_source.nb_channel}")
+                logger.debug(
+                    f"  Memory: {combined_source._data.nbytes / (1024**2):.1f} MB"
+                )
+
                 step_start = time.perf_counter()
                 trace_view = ephyviewer.TraceViewer(
                     source=combined_source, name="All Signals"
@@ -510,10 +513,12 @@ def create_browser(
                 # Update existing viewer's source with new data
                 logger.debug("Reusing existing TraceViewer, updating source data")
                 trace_viewer_widget.source.update_signals(seg.analogsignals)
+                trace_viewer_widget.refresh()
+                trace_viewer_widget.initialize_plot()
 
-            # Store the time range from the combined source (for both new and updated viewer)
-            initial_t_start = combined_source.t_start
-            initial_t_stop = combined_source.t_stop
+            # Store the time range from the actual source being used by the viewer
+            initial_t_start = trace_viewer_widget.source.t_start
+            initial_t_stop = trace_viewer_widget.source.t_stop
 
         # Reuse or create spike train viewers
         logger.debug("Updating spike/event/epoch viewers")
@@ -524,6 +529,7 @@ def create_browser(
                     # Reuse existing viewer - update source data in-place
                     spike_viewer_widgets[i].source.all = source.all
                     spike_viewer_widgets[i].refresh()
+                    spike_viewer_widgets[i].initialize_plot()
                 else:
                     # Create new viewer
                     spike_view = ephyviewer.SpikeTrainViewer(
@@ -541,6 +547,7 @@ def create_browser(
                     # Reuse existing viewer - update source data in-place
                     epoch_viewer_widgets[i].source.all = source.all
                     epoch_viewer_widgets[i].refresh()
+                    epoch_viewer_widgets[i].initialize_plot()
                 else:
                     # Create new viewer
                     epoch_view = ephyviewer.EpochViewer(
@@ -588,8 +595,14 @@ def create_browser(
             win.auto_scale()
             logger.debug(f"  auto_scale(): {time.perf_counter() - step_start:.3f}s")
 
-        # Seek to the new trial's data start time
+        # Update navigation toolbar's global time range and seek to the new trial's data start time
         if initial_t_start is not None:
+            # Update the navigation toolbar's global time limits
+            # This is crucial - otherwise the toolbar keeps the old trial's time range
+            win.navigation_toolbar.set_start_stop(
+                initial_t_start, initial_t_stop, seek=False
+            )
+
             logger.info(f"Seeking all viewers to t={initial_t_start}")
             step_start = time.perf_counter()
             # Explicitly seek each viewer to the new trial's start time
