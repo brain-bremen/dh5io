@@ -30,7 +30,11 @@ from dh5neo import DH5IO
 
 
 class TestBrowserModule:
-    """Test browser module functionality."""
+    """Test basic browser module functionality."""
+
+    def test_dh5mainviewer_class_exists(self):
+        """Test that DH5MainViewer class exists."""
+        assert hasattr(browser_module, "DH5MainViewer")
 
     def test_imports(self):
         """Test that browser module can be imported."""
@@ -111,11 +115,13 @@ class TestBrowserWithRealData:
         win = None
         try:
             # Create browser - should not raise any exceptions
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Verify MainViewer was created
             assert win is not None
-            assert isinstance(win, browser_module.ephyviewer.MainViewer)
+            assert isinstance(win, browser_module.DH5MainViewer)
 
             # Verify viewers were added
             assert len(win.viewers) > 0
@@ -156,7 +162,9 @@ class TestBrowserWithRealData:
         """Test that TrialNavigationWidget is created for multi-trial files."""
         win = None
         try:
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Verify navigation widget exists
             assert "Trial Navigation" in win.viewers
@@ -185,7 +193,9 @@ class TestBrowserWithRealData:
         """Test that navigation buttons work correctly and preserve the widget."""
         win = None
         try:
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Get navigation widget
             assert "Trial Navigation" in win.viewers
@@ -339,7 +349,9 @@ class TestChannelSelection:
         """Test that channel visibility can be controlled."""
         win = None
         try:
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Find the trace viewer
             trace_viewer = None
@@ -381,7 +393,9 @@ class TestChannelSelection:
         """Test that channel visibility is included in get_settings()."""
         win = None
         try:
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Find the trace viewer
             trace_viewer = None
@@ -423,7 +437,9 @@ class TestChannelSelection:
         """Test that per-channel parameters (gain, offset, color) exist."""
         win = None
         try:
-            win = browser_module.create_browser(test_dh5_file, trial_index=0)
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
 
             # Find the trace viewer
             trace_viewer = None
@@ -542,6 +558,73 @@ class TestBrowserDocumentation:
     def test_main_docstring(self):
         """Test that main function has docstring."""
         assert browser_module.main.__doc__ is not None
+
+
+class TestDH5MainViewerSettings:
+    """Test settings persistence for DH5MainViewer."""
+
+    @pytest.fixture
+    def qapp(self):
+        """Create a QApplication instance for tests that need one."""
+        app = ephyviewer.mkQApp()
+        yield app
+        app.processEvents()
+
+    def test_dh5mainviewer_class_exists(self):
+        """Test that DH5MainViewer class exists."""
+        assert hasattr(browser_module, "DH5MainViewer")
+
+    def test_dh5mainviewer_extends_mainviewer(self):
+        """Test that DH5MainViewer extends ephyviewer.MainViewer."""
+        assert issubclass(
+            browser_module.DH5MainViewer, browser_module.ephyviewer.MainViewer
+        )
+
+    def test_dh5mainviewer_has_save_method(self):
+        """Test that DH5MainViewer has save_all_settings method."""
+        assert hasattr(browser_module.DH5MainViewer, "save_all_settings")
+
+    @pytest.fixture
+    def test_dh5_file(self):
+        """Get path to test DH5 file."""
+        test_file = pathlib.Path(__file__).parent / "test.dh5"
+        if not test_file.exists():
+            pytest.skip("Test DH5 file not available")
+        return test_file
+
+    def test_settings_saved_on_close(self, qapp, test_dh5_file):
+        """Test that window state is saved when browser is closed."""
+        try:
+            from PySide6.QtCore import QSettings
+        except ImportError:
+            from PyQt5.QtCore import QSettings
+
+        settings_name = f"dh5browser_{test_dh5_file.stem}_test"
+        win = None
+        try:
+            # Create browser with test settings name
+            win, filename, cache = browser_module.create_browser(
+                test_dh5_file, trial_index=0
+            )
+            # Override settings name for testing
+            win.settings_name = settings_name
+            win.settings = QSettings("ephyviewer", settings_name)
+
+            # Manually trigger save
+            win.save_all_settings()
+
+            # Verify settings were saved
+            assert win.settings.value("window_geometry") is not None
+            assert win.settings.value("window_state") is not None
+
+        finally:
+            # Clean up
+            if win is not None:
+                win.close()
+                qapp.processEvents()
+            # Clean up test settings
+            settings = QSettings("ephyviewer", settings_name)
+            settings.clear()
 
 
 @pytest.mark.skip(reason="Browser functionality under development")

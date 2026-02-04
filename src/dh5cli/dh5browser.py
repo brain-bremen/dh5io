@@ -60,6 +60,51 @@ except ImportError:
     sys.exit(1)
 
 
+class DH5MainViewer(ephyviewer.MainViewer):
+    """Extended MainViewer that persists window state (dock visibility, positions, sizes)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Note: We don't restore window state here because viewers haven't been added yet.
+        # Call restore_window_state() after adding all viewers.
+
+    def restore_window_state(self):
+        """Restore window geometry and dock widget state from settings.
+
+        This should be called AFTER all viewers have been added to the window.
+        """
+        if self.settings_name is not None:
+            # Restore main window geometry
+            geometry = self.settings.value("window_geometry")
+            if geometry is not None:
+                try:
+                    self.restoreGeometry(geometry)
+                    logger.debug("Restored window geometry from settings")
+                except Exception as e:
+                    logger.debug(f"Could not restore window geometry: {e}")
+
+            # Restore dock widget state (visibility, positions, sizes)
+            # This must be done after all dock widgets (viewers) have been added
+            state = self.settings.value("window_state")
+            if state is not None:
+                try:
+                    self.restoreState(state)
+                    logger.debug("Restored window state from settings")
+                except Exception as e:
+                    logger.debug(f"Could not restore window state: {e}")
+
+    def save_all_settings(self):
+        """Save all viewer settings plus window geometry and state."""
+        # Call parent implementation to save viewer parameters
+        super().save_all_settings()
+
+        # Additionally save window geometry and dock state
+        if self.settings_name is not None:
+            self.settings.setValue("window_geometry", self.saveGeometry())
+            self.settings.setValue("window_state", self.saveState())
+            logger.debug("Saved window geometry and state to settings")
+
+
 class SegmentCache:
     """Cache for loaded Neo segments to avoid re-reading from disk with prefetching support."""
 
@@ -680,7 +725,7 @@ def create_browser(
     trial_index: int = 0,
     cache_size: int = 10,
     prefetch_count: int = 3,
-) -> Tuple[ephyviewer.MainViewer, str, SegmentCache]:
+) -> Tuple[DH5MainViewer, str, SegmentCache]:
     """
     Create an ephyviewer MainViewer window for a DH5 file with trial navigation.
 
@@ -697,8 +742,8 @@ def create_browser(
 
     Returns
     -------
-    ephyviewer.MainViewer
-        The configured main viewer window
+    DH5MainViewer
+        The configured main viewer window with state persistence
     str
         The filename
     SegmentCache
@@ -753,10 +798,10 @@ def create_browser(
             f"  Total analog data: {total_samples:,} samples × {total_channels} channels = {total_mb:.1f} MB"
         )
 
-    # Create the main viewer window
+    # Create the main viewer window with state persistence
     logger.debug("Creating MainViewer window")
     step_start = time.perf_counter()
-    win = ephyviewer.MainViewer(
+    win = DH5MainViewer(
         debug=False,
         show_auto_scale=True,
         show_global_xsize=True,
@@ -783,6 +828,9 @@ def create_browser(
 
     trial_info_widget = None
 
+    # Track whether this is the initial load (for auto-scale behavior)
+    is_initial_load = True
+
     # Function to load and display a trial
     def load_trial(trial_idx: int) -> None:
         """Load and display a specific trial by updating data sources in existing widgets."""
@@ -790,7 +838,8 @@ def create_browser(
             trace_viewer_widget, \
             spike_viewer_widgets, \
             epoch_viewer_widgets, \
-            trial_info_widget
+            trial_info_widget, \
+            is_initial_load
 
         load_start = time.perf_counter()
         logger.info(f"Loading trial {trial_idx}...")
@@ -908,11 +957,55 @@ def create_browser(
         ):
             logger.warning("No viewable data found in segment")
 
-        # Auto-scale the trace viewers
-        logger.debug("Auto-scaling viewers")
-        step_start = time.perf_counter()
-        win.auto_scale()
-        logger.debug(f"  auto_scale(): {time.perf_counter() - step_start:.3f}s")
+        # Auto-scale the trace viewers, but only on initial load if no saved settings exist
+        should_auto_scale = False
+        if is_initial_load:
+            # Check if saved settings exist for the trace viewer
+            has_saved_settings = False
+            if win.settings_name is not None and trace_viewer_widget is not None:
+                viewer_key = f"viewer_{trace_viewer_widget.name}"
+                saved_params = win.settings.value(viewer_key)
+                has_saved_settings = saved_params is not None
+
+                logger.debug(f"Checking for saved settings: key='{viewer_key}'")
+                logger.debug(f"  Saved settings exist: {has_saved_settings}")
+
+                if has_saved_settings and trace_viewer_widget is not None:
+                    # Log current ylim values after ephyviewer restored them
+                    try:
+                        ylim_min = trace_viewer_widget.params["ylim_min"]
+                        ylim_max = trace_viewer_widget.params["ylim_max"]
+                        logger.debug(
+                            f"  Current ylim after restore: min={ylim_min}, max={ylim_max}"
+                        )
+                    except (KeyError, TypeError):
+                        logger.debug("  Could not read ylim values from params")
+
+            # Only auto-scale if no saved settings exist
+            should_auto_scale = not has_saved_settings
+            if not should_auto_scale:
+                logger.info(
+                    "Skipping auto-scale: using saved y-axis limits from settings"
+                )
+            else:
+                logger.debug("No saved settings found, will auto-scale")
+
+        if should_auto_scale:
+            logger.debug("Auto-scaling viewers")
+            step_start = time.perf_counter()
+            win.auto_scale()
+            logger.debug(f"  auto_scale(): {time.perf_counter() - step_start:.3f}s")
+
+            # Log ylim values after auto-scale
+            if trace_viewer_widget is not None:
+                try:
+                    ylim_min = trace_viewer_widget.params["ylim_min"]
+                    ylim_max = trace_viewer_widget.params["ylim_max"]
+                    logger.debug(
+                        f"  Y-axis limits after auto-scale: min={ylim_min}, max={ylim_max}"
+                    )
+                except (KeyError, TypeError):
+                    logger.debug("  Could not read ylim values after auto-scale")
 
         # Update navigation toolbar's global time range and seek to the new trial's data start time
         if initial_t_start is not None:
@@ -946,6 +1039,9 @@ def create_browser(
             stim_no = seg.annotations.get("stim_no", "N/A")
             outcome = seg.annotations.get("outcome", "N/A")
             trial_info_widget.update_trial_info(trial_no, stim_no, outcome)
+
+        # Mark that initial load is complete
+        is_initial_load = False
 
     # Load initial trial
     load_trial(trial_index)
@@ -1015,6 +1111,10 @@ def create_browser(
         logger.debug("Navigation widget added")
 
     overall_elapsed = time.perf_counter() - overall_start
+    # Restore window state (dock visibility, positions, sizes) after all viewers are added
+    logger.debug("Restoring window state")
+    win.restore_window_state()
+
     logger.info(f"Browser ready in {overall_elapsed:.3f}s")
 
     return win, dh5_file.name, cache
