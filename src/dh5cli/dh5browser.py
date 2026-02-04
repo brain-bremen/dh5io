@@ -16,7 +16,9 @@ import argparse
 import logging
 import pathlib
 import sys
+import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -59,9 +61,15 @@ except ImportError:
 
 
 class SegmentCache:
-    """Cache for loaded Neo segments to avoid re-reading from disk."""
+    """Cache for loaded Neo segments to avoid re-reading from disk with prefetching support."""
 
-    def __init__(self, reader: DH5IO, max_cache_size: int = 10) -> None:
+    def __init__(
+        self,
+        reader: DH5IO,
+        max_cache_size: int = 10,
+        prefetch_count: int = 3,
+        nb_segments: Optional[int] = None,
+    ) -> None:
         """
         Parameters
         ----------
@@ -69,11 +77,95 @@ class SegmentCache:
             The DH5 reader instance
         max_cache_size : int
             Maximum number of segments to keep in cache
+        prefetch_count : int
+            Number of trials to prefetch ahead (default: 3)
+        nb_segments : int, optional
+            Total number of segments (for bounds checking during prefetch)
         """
         self.reader = reader
         self.max_cache_size = max_cache_size
+        self.prefetch_count = prefetch_count
+        self.nb_segments = nb_segments
         self._cache: Dict[int, Tuple[neo.Segment, float]] = {}
         self._access_order: List[int] = []
+        self._cache_lock = threading.RLock()
+        self._executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="prefetch"
+        )
+        self._prefetch_futures: Dict[int, Future] = {}  # Track ongoing prefetches
+
+    def _load_segment_internal(self, segment_index: int) -> neo.Segment:
+        """Internal method to load a segment from disk (thread-safe)."""
+        step_start = time.perf_counter()
+        segment = self.reader.read_segment(
+            block_index=0, seg_index=segment_index, lazy=False
+        )
+        logger.debug(
+            f"  read_segment({segment_index}): {time.perf_counter() - step_start:.3f}s"
+        )
+        return segment
+
+    def _prefetch_segment(self, segment_index: int) -> None:
+        """Prefetch a segment in the background (called by executor thread)."""
+        with self._cache_lock:
+            # Check if already cached
+            if segment_index in self._cache:
+                logger.debug(
+                    f"Segment {segment_index} already in cache, skipping prefetch"
+                )
+                return
+
+            # Check if cache is full
+            if len(self._cache) >= self.max_cache_size:
+                logger.debug(
+                    f"Cache full, skipping prefetch of segment {segment_index}"
+                )
+                return
+
+        # Load segment (outside lock to avoid blocking main thread)
+        logger.debug(f"Prefetching segment {segment_index} in background")
+        segment = self._load_segment_internal(segment_index)
+
+        # Add to cache
+        with self._cache_lock:
+            # Double-check it wasn't added while we were loading
+            if segment_index not in self._cache:
+                # Only add if cache still has room
+                if len(self._cache) < self.max_cache_size:
+                    self._cache[segment_index] = (segment, time.time())
+                    self._access_order.append(segment_index)
+                    logger.debug(f"Prefetched segment {segment_index} added to cache")
+                else:
+                    logger.debug(
+                        f"Cache filled during prefetch, discarding segment {segment_index}"
+                    )
+
+    def _start_prefetch(self, start_index: int) -> None:
+        """Start prefetching trials ahead of the given index."""
+        if self.prefetch_count <= 0 or self.nb_segments is None:
+            return
+
+        for i in range(1, self.prefetch_count + 1):
+            next_index = start_index + i
+            if next_index >= self.nb_segments:
+                break
+
+            # Skip if already cached or being prefetched
+            with self._cache_lock:
+                if next_index in self._cache or next_index in self._prefetch_futures:
+                    continue
+
+            # Submit prefetch task
+            logger.debug(f"Scheduling prefetch for segment {next_index}")
+            future = self._executor.submit(self._prefetch_segment, next_index)
+            self._prefetch_futures[next_index] = future
+
+            # Clean up completed futures
+            completed = [
+                idx for idx, fut in self._prefetch_futures.items() if fut.done()
+            ]
+            for idx in completed:
+                del self._prefetch_futures[idx]
 
     def get_segment(self, segment_index: int) -> neo.Segment:
         """
@@ -89,44 +181,50 @@ class SegmentCache:
         neo.Segment
             The requested segment
         """
-        if segment_index in self._cache:
-            logger.debug(f"Cache hit for segment {segment_index}")
-            # Update access order
-            self._access_order.remove(segment_index)
-            self._access_order.append(segment_index)
-            return self._cache[segment_index][0]
+        with self._cache_lock:
+            if segment_index in self._cache:
+                logger.debug(f"Cache hit for segment {segment_index}")
+                # Update access order
+                self._access_order.remove(segment_index)
+                self._access_order.append(segment_index)
+                segment = self._cache[segment_index][0]
+            else:
+                # Cache miss - load from disk
+                logger.debug(
+                    f"Cache miss for segment {segment_index}, loading from disk"
+                )
+                segment = self._load_segment_internal(segment_index)
 
-        # Cache miss - load from disk
-        logger.debug(f"Cache miss for segment {segment_index}, loading from disk")
-        step_start = time.perf_counter()
-        segment = self.reader.read_segment(
-            block_index=0, seg_index=segment_index, lazy=False
-        )
-        logger.debug(
-            f"  read_segment({segment_index}): {time.perf_counter() - step_start:.3f}s"
-        )
+                # Add to cache
+                self._cache[segment_index] = (segment, time.time())
+                self._access_order.append(segment_index)
 
-        # Add to cache
-        self._cache[segment_index] = (segment, time.time())
-        self._access_order.append(segment_index)
+                # Evict oldest if cache is full
+                if len(self._cache) > self.max_cache_size:
+                    oldest = self._access_order.pop(0)
+                    del self._cache[oldest]
+                    logger.debug(f"Evicted segment {oldest} from cache (LRU)")
 
-        # Evict oldest if cache is full
-        if len(self._cache) > self.max_cache_size:
-            oldest = self._access_order.pop(0)
-            del self._cache[oldest]
-            logger.debug(f"Evicted segment {oldest} from cache (LRU)")
+        # Start prefetching next trials (outside lock)
+        self._start_prefetch(segment_index)
 
         return segment
 
     def clear(self) -> None:
-        """Clear the cache."""
-        self._cache.clear()
-        self._access_order.clear()
-        logger.debug("Cache cleared")
+        """Clear the cache and shutdown executor."""
+        with self._cache_lock:
+            self._cache.clear()
+            self._access_order.clear()
+            logger.debug("Cache cleared")
+
+    def shutdown(self) -> None:
+        """Shutdown the prefetch executor."""
+        logger.debug("Shutting down prefetch executor")
+        self._executor.shutdown(wait=False)
 
 
 class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
-    """Widget for navigating between trials with Previous/Next buttons."""
+    """Widget for navigating between trials with Previous/Next buttons and direct trial selection."""
 
     trial_changed = Signal(int)  # Signal emitted when trial changes
     time_changed = Signal(float, float)  # Required by ephyviewer (t_start, t_stop)
@@ -164,12 +262,21 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         self.prev_btn.clicked.connect(self._on_previous)
         layout.addWidget(self.prev_btn)
 
-        # Segment label
-        self.label = QtWidgets.QLabel()
-        self.label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
-        self.label.setMinimumWidth(150)
-        self._update_label()
-        layout.addWidget(self.label)
+        # Trial selector label
+        layout.addWidget(QtWidgets.QLabel("Trial:"))
+
+        # Trial spinbox (editable, allows jumping to any trial)
+        self.trial_spinbox = QtWidgets.QSpinBox()
+        self.trial_spinbox.setMinimum(1)
+        self.trial_spinbox.setMaximum(nb_trials)
+        self.trial_spinbox.setValue(initial_trial + 1)  # Display as 1-based
+        self.trial_spinbox.setMinimumWidth(80)
+        self.trial_spinbox.valueChanged.connect(self._on_trial_changed)
+        layout.addWidget(self.trial_spinbox)
+
+        # Total trials label
+        self.total_label = QtWidgets.QLabel(f"of {self.nb_trials}")
+        layout.addWidget(self.total_label)
 
         # Next button
         self.next_btn = QtWidgets.QPushButton("Next ▶")
@@ -182,9 +289,20 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         # Update button states
         self._update_buttons()
 
-    def _update_label(self) -> None:
-        """Update the trial label."""
-        self.label.setText(f"Trial {self.current_trial + 1} of {self.nb_trials}")
+    def _update_spinbox(self) -> None:
+        """Update the trial spinbox value without triggering signal."""
+        # Temporarily block signals to avoid triggering _on_trial_changed
+        self.trial_spinbox.blockSignals(True)
+        self.trial_spinbox.setValue(self.current_trial + 1)
+        self.trial_spinbox.blockSignals(False)
+
+    def _on_trial_changed(self, value: int) -> None:
+        """Handle trial spinbox value change (user typed or used arrows)."""
+        new_trial = value - 1  # Convert from 1-based to 0-based
+        if 0 <= new_trial < self.nb_trials and new_trial != self.current_trial:
+            self.current_trial = new_trial
+            self._update_buttons()
+            self.trial_changed.emit(self.current_trial)
 
     def _update_buttons(self) -> None:
         """Enable/disable buttons based on current trial."""
@@ -195,7 +313,7 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         """Handle Previous button click."""
         if self.current_trial > 0:
             self.current_trial -= 1
-            self._update_label()
+            self._update_spinbox()
             self._update_buttons()
             self.trial_changed.emit(self.current_trial)
 
@@ -203,7 +321,7 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         """Handle Next button click."""
         if self.current_trial < self.nb_trials - 1:
             self.current_trial += 1
-            self._update_label()
+            self._update_spinbox()
             self._update_buttons()
             self.trial_changed.emit(self.current_trial)
 
@@ -211,7 +329,7 @@ class TrialNavigationWidget(QtWidgets.QWidget):  # type: ignore[misc]
         """Programmatically set the current trial."""
         if 0 <= trial_index < self.nb_trials:
             self.current_trial = trial_index
-            self._update_label()
+            self._update_spinbox()
             self._update_buttons()
 
     def get_settings(self) -> Dict[str, int]:
@@ -558,8 +676,11 @@ def create_global_event_epoch_sources(dh5_file: pathlib.Path):
 
 
 def create_browser(
-    dh5_file: pathlib.Path, trial_index: int = 0, cache_size: int = 10
-) -> Tuple[ephyviewer.MainViewer, str]:
+    dh5_file: pathlib.Path,
+    trial_index: int = 0,
+    cache_size: int = 10,
+    prefetch_count: int = 3,
+) -> Tuple[ephyviewer.MainViewer, str, SegmentCache]:
     """
     Create an ephyviewer MainViewer window for a DH5 file with trial navigation.
 
@@ -571,11 +692,17 @@ def create_browser(
         Index of the trial to display (default: 0)
     cache_size : int, optional
         Maximum number of trials to cache (default: 10)
+    prefetch_count : int, optional
+        Number of trials to prefetch ahead in background (default: 3)
 
     Returns
     -------
     ephyviewer.MainViewer
         The configured main viewer window
+    str
+        The filename
+    SegmentCache
+        The cache instance (for cleanup)
     """
     overall_start = time.perf_counter()
 
@@ -598,8 +725,13 @@ def create_browser(
         print(f"File contains {nb_segments} trial(s)")
         sys.exit(1)
 
-    # Create segment cache
-    cache = SegmentCache(reader, max_cache_size=cache_size)
+    # Create segment cache with prefetching
+    cache = SegmentCache(
+        reader,
+        max_cache_size=cache_size,
+        prefetch_count=prefetch_count,
+        nb_segments=nb_segments,
+    )
 
     # Load initial segment
     segment = cache.get_segment(trial_index)
@@ -734,13 +866,13 @@ def create_browser(
                 logger.debug("Reusing existing TraceViewer, updating source data")
                 trace_viewer_widget.source.update_signals(seg.analogsignals)
                 trace_viewer_widget.refresh()
-                trace_viewer_widget.initialize_plot()
 
             # Store the time range from the actual source being used by the viewer
             # trace_viewer_widget is guaranteed non-None here
+            assert trace_viewer_widget is not None
             viewer_source = trace_viewer_widget.source
-            initial_t_start = viewer_source.t_start
-            initial_t_stop = viewer_source.t_stop
+            initial_t_start = viewer_source.t_start  # type: ignore[attr-defined]
+            initial_t_stop = viewer_source.t_stop  # type: ignore[attr-defined]
 
         # Reuse or create spike train viewers
         logger.debug("Updating spike/event/epoch viewers")
@@ -751,7 +883,6 @@ def create_browser(
                     # Reuse existing viewer - update source data in-place
                     spike_viewer_widgets[i].source.all = source.all
                     spike_viewer_widgets[i].refresh()
-                    spike_viewer_widgets[i].initialize_plot()
                 else:
                     # Create new viewer
                     spike_view = ephyviewer.SpikeTrainViewer(
@@ -777,12 +908,11 @@ def create_browser(
         ):
             logger.warning("No viewable data found in segment")
 
-        # Auto-scale the trace viewers (only on first load)
-        if view_count > 0:
-            logger.debug("Auto-scaling viewers")
-            step_start = time.perf_counter()
-            win.auto_scale()
-            logger.debug(f"  auto_scale(): {time.perf_counter() - step_start:.3f}s")
+        # Auto-scale the trace viewers
+        logger.debug("Auto-scaling viewers")
+        step_start = time.perf_counter()
+        win.auto_scale()
+        logger.debug(f"  auto_scale(): {time.perf_counter() - step_start:.3f}s")
 
         # Update navigation toolbar's global time range and seek to the new trial's data start time
         if initial_t_start is not None:
@@ -887,7 +1017,7 @@ def create_browser(
     overall_elapsed = time.perf_counter() - overall_start
     logger.info(f"Browser ready in {overall_elapsed:.3f}s")
 
-    return win, dh5_file.name
+    return win, dh5_file.name, cache
 
 
 def main() -> None:
@@ -924,6 +1054,12 @@ using an interactive viewer based on ephyviewer.
         type=int,
         default=10,
         help="Maximum number of trials to cache in memory (default: 10)",
+    )
+    parser.add_argument(
+        "--prefetch-count",
+        type=int,
+        default=3,
+        help="Number of trials to prefetch ahead in background (default: 3)",
     )
     parser.add_argument(
         "--debug",
@@ -980,9 +1116,13 @@ using an interactive viewer based on ephyviewer.
         app = ephyviewer.mkQApp()
 
     # Create and show browser window
+    cache = None
     try:
-        win, filename = create_browser(
-            dh5_file, trial_index=args.trial, cache_size=args.cache_size
+        win, filename, cache = create_browser(
+            dh5_file,
+            trial_index=args.trial,
+            cache_size=args.cache_size,
+            prefetch_count=args.prefetch_count,
         )
 
         logger.info("Showing browser window...")
@@ -1001,12 +1141,20 @@ using an interactive viewer based on ephyviewer.
         # Run the Qt event loop
         app.exec()
 
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
     except Exception as e:
         print(f"Error creating browser: {e}")
         import traceback
 
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Clean up cache and shutdown prefetch threads
+        if cache is not None:
+            logger.info("Shutting down prefetch threads...")
+            cache.shutdown()
+            logger.info("Cleanup complete")
 
 
 if __name__ == "__main__":
