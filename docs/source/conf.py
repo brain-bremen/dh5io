@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath("../../src"))
 project = "dh5io"
 copyright = "2023-2026, Universität Bremen, Joscha Schmiedt"
 author = "Joscha Schmiedt"
-release = "0.3.0-dev"
+release = "0.3.0"
 version = "0.3.0"
 
 # -- General configuration ---------------------------------------------------
