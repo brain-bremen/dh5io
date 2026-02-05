@@ -1,22 +1,23 @@
 """Test merging EV02 (event triggers) from multiple DH5 files."""
 
-import numpy as np
-from pathlib import Path
-import tempfile
 import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from dh5cli.dh5merge import merge_dh5_files
+from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
 from dh5io.create import create_dh_file
-from dh5io.cont import create_empty_index_array, create_cont_group_from_data_in_file
 from dh5io.dh5file import DH5File
 from dh5io.event_triggers import (
     add_event_triggers_to_file,
     get_event_triggers_from_file,
 )
 from dh5io.operations import get_operations_group
-from dh5cli.dh5merge import merge_dh5_files
 
 
 def create_test_events(
@@ -143,15 +144,24 @@ def test_merge_operation_recorded():
         file2 = tmpdir / "test2.dh5"
         output = tmpdir / "merged.dh5"
 
-        # Create two simple files
-        for file in [file1, file2]:
-            with create_dh_file(file, overwrite=True) as dh5:
-                data = np.random.randint(-1000, 1000, size=(100, 2), dtype=np.int16)
-                index = create_empty_index_array(1)
-                index[0] = (0, 0)
-                create_cont_group_from_data_in_file(
-                    dh5._file, 0, data, index, np.int32(1000)
-                )
+        # Create two simple files with sequential timestamps
+        # File 1: starts at 0
+        with create_dh_file(file1, overwrite=True) as dh5:
+            data = np.random.randint(-1000, 1000, size=(100, 2), dtype=np.int16)
+            index = create_empty_index_array(1)
+            index[0] = (0, 0)
+            create_cont_group_from_data_in_file(
+                dh5._file, 0, data, index, np.int32(1000)
+            )
+
+        # File 2: starts after file 1 ends (100 samples * 1000 ns = 100,000 ns)
+        with create_dh_file(file2, overwrite=True) as dh5:
+            data = np.random.randint(-1000, 1000, size=(100, 2), dtype=np.int16)
+            index = create_empty_index_array(1)
+            index[0] = (200_000, 0)  # Start after file 1
+            create_cont_group_from_data_in_file(
+                dh5._file, 0, data, index, np.int32(1000)
+            )
 
         # Merge files
         merge_dh5_files([file1, file2], output, overwrite=True)

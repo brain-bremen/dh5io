@@ -36,11 +36,13 @@ the event trigger encoding from other sources than the DAQ-HDF file.
 """
 
 import logging
-from dh5io.errors import DH5Error
-from dhspec.event_triggers import EV_DATASET_DTYPE, EV_DATASET_NAME
+
 import h5py
 import numpy as np
 import numpy.typing as npt
+
+from dh5io.errors import DH5Error
+from dhspec.event_triggers import EV_DATASET_DTYPE, EV_DATASET_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,11 @@ def validate_event_triggers_dataset(dataset: h5py.Dataset) -> None:
         raise DH5Error(
             f"EV02 dataset must have 2 columns (time, event) with int64 and int32, but has dtype {dataset.dtype}"
         )
+
+    # check if all events are sequential
+    data = np.array(dataset, dtype=EV_DATASET_DTYPE)
+    if not np.all(np.diff(data["time"]) >= 0):
+        raise DH5Error("Event triggers timestamps are not in non-decreasing order")
 
 
 def validate_event_triggers(file: h5py.File) -> None:

@@ -3,7 +3,7 @@ name = "dh5io"
 version = "0.3.0-dev"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
 authors = [
-    { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" } 
+    { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" }
 ]
 license = "MIT"
 readme = "README.md"
@@ -45,6 +45,7 @@ dev = [
 [project.scripts]
 dh5tree = "dh5cli.dh5tree:main"
 dh5merge = "dh5cli.dh5merge:main"
+dh5browser = "dh5cli.dh5browser:main"
 
 [project.optional-dependencies]
 dev = [
@@ -54,7 +55,15 @@ dev = [
     "ruff>=0.11.2",
     "dh5io[all]",
 ]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=2.0.0",
+    "sphinx-autodoc-typehints>=1.25.0",
+    "linkify-it-py>=2.0.0",
+]
 dhzio = ["zarr>=3.0.6"]
-all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]"]
+all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]", "dh5io[browser]"]
 neo = ["neo"]
+browser = ["ephyviewer", "PySide6", "dh5io[neo]"]
 test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]"]

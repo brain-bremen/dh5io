@@ -1,18 +1,20 @@
 """Test the dh5merge CLI tool."""
 
-import pytest
-import numpy as np
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from dh5io.create import create_dh_file
-from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
-from dh5io.dh5file import DH5File
+import numpy as np
+import pytest
+
 from dh5cli.dh5merge import (
-    merge_dh5_files,
     determine_cont_blocks_to_merge,
+    merge_dh5_files,
     merge_index_arrays_with_shapes,
+    suggest_merged_filename,
 )
+from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
+from dh5io.create import create_dh_file
+from dh5io.dh5file import DH5File
 
 
 @pytest.fixture
@@ -231,7 +233,7 @@ def test_no_common_cont_blocks(temp_dir):
     create_test_dh5_file(file2, cont_id=1, n_samples=100, n_channels=2)
 
     # Should raise ValueError
-    with pytest.raises(ValueError, match="No common CONT blocks"):
+    with pytest.raises(ValueError, match="No common CONT or WAVELET blocks"):
         merge_dh5_files([file1, file2], output)
 
 
@@ -454,3 +456,356 @@ def test_merge_with_missing_trialmaps(temp_dir):
         assert trialmap.trial_numbers[2] == 3
         assert trialmap.trial_numbers[3] == 4
         assert trialmap.trial_numbers[4] == 5
+
+
+def test_suggest_merged_filename():
+    """Test the suggest_merged_filename function."""
+    # Test case 1: Files with common prefix
+    files = [
+        Path("session1_day1.dh5"),
+        Path("session1_day2.dh5"),
+        Path("session1_day3.dh5"),
+    ]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "session1_day_merged.dh5"
+
+    # Test case 2: Files with underscore separator
+    files = [Path("experiment_A.dh5"), Path("experiment_B.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "experiment_merged.dh5"
+
+    # Test case 3: Files with no overlap (should return None)
+    files = [Path("file1.dh5"), Path("data2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 4: Files with very short overlap (1 char, should return None)
+    files = [Path("x1.dh5"), Path("x2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 5: Files with trailing underscore in prefix
+    files = [Path("mouse123_trial_1.dh5"), Path("mouse123_trial_2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "mouse123_trial_merged.dh5"
+
+    # Test case 6: Complete overlap except for extension
+    files = [Path("data.dh5"), Path("data.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "data_merged.dh5"
+
+    # Test case 7: Files in different directories
+    files = [Path("/tmp/data_session1.dh5"), Path("/tmp/data_session2.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "data_session_merged.dh5"
+    assert result.parent == Path("/tmp")
+
+    # Test case 8: Partial word overlap
+    files = [
+        Path("recording_file1.dh5"),
+        Path("recording_file2.dh5"),
+        Path("recording_data3.dh5"),
+    ]
+    result = suggest_merged_filename(files)
+    assert result is not None
+    assert result.name == "recording_merged.dh5"
+
+    # Test case 9: Less than 2 files (should return None)
+    files = [Path("file1.dh5")]
+    result = suggest_merged_filename(files)
+    assert result is None
+
+    # Test case 10: Empty list (should return None)
+    files = []
+    result = suggest_merged_filename(files)
+    assert result is None
+
+
+def test_merge_without_output_filename(temp_dir):
+    """Test merging files with auto-suggested output filename."""
+    # Create test files with common prefix
+    file1 = temp_dir / "session_part1.dh5"
+    file2 = temp_dir / "session_part2.dh5"
+
+    n_channels = 2
+    cont_id = 0
+
+    create_test_dh5_file(file1, cont_id, 50, n_channels, start_time=0)
+    create_test_dh5_file(file2, cont_id, 75, n_channels, start_time=1000000)
+
+    # Suggest output filename
+    suggested = suggest_merged_filename([file1, file2])
+    assert suggested is not None
+    assert suggested.name == "session_part_merged.dh5"
+    assert suggested.parent == temp_dir
+
+    # Use suggested filename to merge
+    merge_dh5_files([file1, file2], suggested)
+
+    # Verify merged file exists and is correct
+    assert suggested.exists()
+    with DH5File(suggested, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+        assert cont.n_samples == 125  # 50 + 75
+
+
+def test_merge_with_different_calibrations(temp_dir):
+    """Test merging files with different calibration values preserves signal values."""
+    file1 = temp_dir / "calib1.dh5"
+    file2 = temp_dir / "calib2.dh5"
+    output = temp_dir / "merged.dh5"
+
+    n_samples = 100
+    n_channels = 2
+    cont_id = 0
+    sample_period = 1000  # 1 microsecond
+
+    # Create first file with calibration = [2.0, 3.0]
+    calibration1 = np.array([2.0, 3.0], dtype=np.float64)
+    data1 = np.array([[1000, 2000]] * n_samples, dtype=np.int16)  # Raw int16 values
+    # Real signal values: [2000.0, 6000.0] for each sample
+
+    index1 = create_empty_index_array(1)
+    index1[0]["time"] = 0
+    index1[0]["offset"] = 0
+
+    with create_dh_file(file1, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=data1,
+            index=index1,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration1,
+            name=f"CONT{cont_id}",
+        )
+
+    # Create second file with calibration = [4.0, 5.0]
+    calibration2 = np.array([4.0, 5.0], dtype=np.float64)
+    data2 = np.array([[500, 1200]] * n_samples, dtype=np.int16)  # Raw int16 values
+    # Real signal values: [2000.0, 6000.0] for each sample (same as file1!)
+
+    index2 = create_empty_index_array(1)
+    index2[0]["time"] = n_samples * sample_period  # Sequential data
+    index2[0]["offset"] = 0
+
+    with create_dh_file(file2, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=data2,
+            index=index2,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration2,
+            name=f"CONT{cont_id}",
+        )
+
+    # Merge files
+    merge_dh5_files([file1, file2], output)
+
+    # Verify merged file
+    with DH5File(output, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+
+        # Check basic properties
+        assert cont.n_samples == 2 * n_samples
+        assert cont.n_channels == n_channels
+
+        # Output should use first file's calibration
+        assert np.allclose(cont.calibration, calibration1)
+
+        # Get calibrated data from merged file
+        merged_calibrated = cont.calibrated_data
+
+        # First half should have original signal values from file1
+        expected_signal1 = data1.astype(np.float64) * calibration1
+        assert np.allclose(merged_calibrated[:n_samples], expected_signal1, rtol=1e-3)
+
+        # Second half should have original signal values from file2
+        # (converted through calibration2, then back through calibration1)
+        expected_signal2 = data2.astype(np.float64) * calibration2
+        assert np.allclose(merged_calibrated[n_samples:], expected_signal2, rtol=1e-3)
+
+        # Both halves should have the same signal values since we designed them that way
+        assert np.allclose(
+            merged_calibrated[:n_samples], merged_calibrated[n_samples:], rtol=1e-3
+        )
+
+
+def test_merge_multiple_files_with_varying_calibrations(temp_dir):
+    """Test merging 3+ files with varying calibration values."""
+    file1 = temp_dir / "calib1.dh5"
+    file2 = temp_dir / "calib2.dh5"
+    file3 = temp_dir / "calib3.dh5"
+    output = temp_dir / "merged_multi.dh5"
+
+    n_samples = 50
+    n_channels = 2
+    cont_id = 0
+    sample_period = 1000
+
+    # File 1: calibration = [1.0, 2.0]
+    calibration1 = np.array([1.0, 2.0], dtype=np.float64)
+    # Choose signal values: [100.0, 200.0]
+    signal_values = np.array([100.0, 200.0], dtype=np.float64)
+    data1 = (signal_values / calibration1).astype(np.int16)
+
+    index1 = create_empty_index_array(1)
+    index1[0]["time"] = 0
+    index1[0]["offset"] = 0
+
+    with create_dh_file(file1, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data1, (n_samples, 1)),
+            index=index1,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration1,
+            name=f"CONT{cont_id}",
+        )
+
+    # File 2: calibration = [0.5, 1.0] (different from file 1)
+    calibration2 = np.array([0.5, 1.0], dtype=np.float64)
+    data2 = (signal_values / calibration2).astype(np.int16)
+
+    index2 = create_empty_index_array(1)
+    index2[0]["time"] = n_samples * sample_period
+    index2[0]["offset"] = 0
+
+    with create_dh_file(file2, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data2, (n_samples, 1)),
+            index=index2,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration2,
+            name=f"CONT{cont_id}",
+        )
+
+    # File 3: calibration = [2.0, 4.0] (different from both)
+    calibration3 = np.array([2.0, 4.0], dtype=np.float64)
+    data3 = (signal_values / calibration3).astype(np.int16)
+
+    index3 = create_empty_index_array(1)
+    index3[0]["time"] = 2 * n_samples * sample_period
+    index3[0]["offset"] = 0
+
+    with create_dh_file(file3, overwrite=True, boards=["Board1"]) as dh5:
+        create_cont_group_from_data_in_file(
+            dh5._file,
+            cont_id,
+            data=np.tile(data3, (n_samples, 1)),
+            index=index3,
+            sample_period_ns=np.int32(sample_period),
+            calibration=calibration3,
+            name=f"CONT{cont_id}",
+        )
+
+    # Merge all three files
+    merge_dh5_files([file1, file2, file3], output)
+
+    # Verify merged file
+    with DH5File(output, mode="r") as merged:
+        cont = merged.get_cont_group_by_id(cont_id)
+
+        # Check basic properties
+        assert cont.n_samples == 3 * n_samples
+        assert cont.n_channels == n_channels
+
+        # Output uses first file's calibration
+        assert np.allclose(cont.calibration, calibration1)
+
+        # Get calibrated data
+        merged_calibrated = cont.calibrated_data
+
+        # All three sections should have the same signal values
+        section1 = merged_calibrated[:n_samples]
+        section2 = merged_calibrated[n_samples : 2 * n_samples]
+        section3 = merged_calibrated[2 * n_samples :]
+
+        # Each section should match the expected signal values
+        assert np.allclose(section1[0], signal_values, rtol=1e-3)
+        assert np.allclose(section2[0], signal_values, rtol=1e-3)
+        assert np.allclose(section3[0], signal_values, rtol=1e-3)
+
+        # All sections should be identical
+        assert np.allclose(section1, section2, rtol=1e-3)
+        assert np.allclose(section2, section3, rtol=1e-3)
+
+
+def test_merge_preserves_operations_from_first_file(temp_dir):
+    """Test that the Operations group from the first file is preserved in the merged file."""
+    from dh5io.operations import add_operation_to_file, get_operations_group
+    import h5py
+
+    n_samples = 100
+    n_channels = 2
+    cont_id = 0
+
+    # Create first file with operations history
+    file1 = temp_dir / "test1.dh5"
+    create_test_dh5_file(file1, cont_id, n_samples, n_channels, start_time=0)
+    
+    # Add some operations to the first file
+    with h5py.File(file1, "r+") as f:
+        add_operation_to_file(
+            f,
+            new_operation_group_name="initial_recording",
+            tool="TestRecorder v1.0",
+            operator_name="Test User",
+        )
+        add_operation_to_file(
+            f,
+            new_operation_group_name="filter_data",
+            tool="TestFilter v2.0",
+            operator_name="Test User",
+        )
+    
+    # Create second file without operations
+    file2 = temp_dir / "test2.dh5"
+    create_test_dh5_file(file2, cont_id, n_samples, n_channels, start_time=1000000)
+
+    # Create third file without operations  
+    file3 = temp_dir / "test3.dh5"
+    create_test_dh5_file(file3, cont_id, n_samples, n_channels, start_time=2000000)
+
+    # Merge files
+    output_file = temp_dir / "merged.dh5"
+    merge_dh5_files([file1, file2, file3], output_file)
+
+    # Verify the merged file contains operations from first file + merge operation
+    with h5py.File(output_file, "r") as f:
+        operations_group = get_operations_group(f)
+        assert operations_group is not None, "Operations group should exist"
+        
+        # Should have 1 create_file + 2 operations from first file + 1 merge operation = 4 total
+        operation_names = list(operations_group.keys())
+        assert len(operation_names) == 4, f"Expected 4 operations, got {len(operation_names)}"
+        
+        # Check that first two operations are from the first file
+        # Check that merged file has its own create_file operation
+        assert "000_create_file" in operation_names
+        
+        # Check that operations from first file were copied
+        assert "001_initial_recording" in operation_names
+        assert "002_filter_data" in operation_names
+        
+        # Check that the merge operation was added
+        
+        # Check that the merge operation was added
+        assert "003_merge_files" in operation_names
+        
+        # Verify merge operation has the expected attributes
+        
+        # Verify merge operation has the expected attributes
+        merge_op = operations_group["003_merge_files"]
+        assert "MergedFiles" in merge_op.attrs
+        assert "NumberOfFiles" in merge_op.attrs
+        assert merge_op.attrs["NumberOfFiles"] == 3

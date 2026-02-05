@@ -6,6 +6,7 @@ The following kinds of data can be stored in DAQ-HDF files:
 
 -   signal data (CONT groups)
 -   spike data (SPIKE groups)
+-   wavelet data (WAVELET groups)
 -   trialmap (TRIALMAP dataset)
 -   time markers (Markers group) and intervals (Intervals group)
 -   processing history (Operations groups)
@@ -38,11 +39,14 @@ datatype in the `CONT` blocks description.
 """
 
 import pathlib
-import numpy
+
 import h5py
-import dh5io.trialmap as trialmap
-import dh5io.event_triggers as event_triggers
+import numpy
+
 import dh5io.cont as cont
+import dh5io.event_triggers as event_triggers
+import dh5io.trialmap as trialmap
+import dh5io.wavelet as wavelet
 from dhspec.dh5file import BOARDS_ATTRIBUTE_NAME, FILEVERSION_ATTRIBUTE_NAME
 
 
@@ -96,14 +100,35 @@ class DH5File:
         else:
             spike_groups_str = "        │   └── (none)"
 
+        wavelet_group_names = self.get_wavelet_group_names()
+        wavelet_groups_str = ""
+        if wavelet_group_names:
+            wavelet_groups_lines = [
+                f"        │   ├─── {name}" for name in wavelet_group_names[:-1]
+            ]
+            wavelet_groups_lines.append(f"        │   └─── {wavelet_group_names[-1]}")
+            wavelet_groups_str = "\n".join(wavelet_groups_lines)
+        else:
+            wavelet_groups_str = "        │   └── (none)"
+
+        events_dataset = self.get_events_dataset()
+        n_events = len(events_dataset) if events_dataset is not None else 0
+        try:
+            trialmap = self.get_trialmap()
+            n_trials = len(trialmap) if trialmap is not None else 0
+        except (AttributeError, Exception):
+            n_trials = 0
+
         return f"""
     DAQ-HDF5 File (version {self.version}) {self._file.filename:s} containing:
         ├───CONT Groups ({len(cont_group_names):d}):
 {cont_groups_str}
         ├───SPIKE Groups ({len(spike_group_names):d}):
 {spike_groups_str}
-        ├─── {len(self.get_events_dataset()):d} Events
-        └─── {len(self.get_trialmap()):d} Trials in TRIALMAP
+        ├───WAVELET Groups ({len(wavelet_group_names):d}):
+{wavelet_groups_str}
+        ├─── {n_events:d} Events
+        └─── {n_trials:d} Trials in TRIALMAP
         """
 
     @property
@@ -155,6 +180,23 @@ class DH5File:
 
     def get_cont_index_by_id(self, cont_id: int) -> h5py.Dataset:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
+
+    # wavelet groups
+    def get_wavelet_groups(self) -> list[wavelet.Wavelet]:
+        return [
+            wavelet.Wavelet(group)
+            for group in wavelet.get_wavelet_groups_from_file(self._file)
+        ]
+
+    def get_wavelet_group_names(self) -> list[str]:
+        return wavelet.get_wavelet_group_names_from_file(self._file)
+
+    def get_wavelet_group_ids(self) -> list[int]:
+        return wavelet.enumerate_wavelet_groups(self._file)
+
+    def get_wavelet_group_by_id(self, id: int) -> wavelet.Wavelet | None:
+        group = wavelet.get_wavelet_group_by_id_from_file(self._file, id)
+        return wavelet.Wavelet(group) if group is not None else None
 
     # trialmap
     def get_trialmap(self) -> trialmap.Trialmap | None:
