@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `dhspec.intervals.INTERVAL_DATASET_DTYPE` named its members `start_time` and `end_time`. The specification and the original C++ library use `StartTime` and `EndTime`; the dtype now does too. Readers of files written with the old dtype should access the members by position.
+
 ## [0.4.2] - 2026-08-11
 
 ### Fixed

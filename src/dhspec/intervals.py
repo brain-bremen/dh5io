@@ -34,7 +34,7 @@ import numpy as np
 INTERVAL_GROUP_NAME = "Intervals"
 INTERVAL_DATASET_DTYPE = np.dtype(
     [
-        ("start_time", np.int64),
-        ("end_time", np.int64),
+        ("StartTime", np.int64),
+        ("EndTime", np.int64),
     ]
 )
