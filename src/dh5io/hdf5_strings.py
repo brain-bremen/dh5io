@@ -1,6 +1,44 @@
+"""Writing and reading of string attributes.
+
+Up to FILEVERSION 2, strings are fixed-length ASCII, for compatibility with
+the original dhfun.dll and its MEX files. From FILEVERSION 3 on, strings are
+variable-length UTF-8, the default of h5py and other modern HDF5 libraries.
+The writers below choose the form from the FILEVERSION attribute of the file
+that contains the object; objects in files without FILEVERSION get
+fixed-length ASCII strings.
+"""
+
 import h5py
 import h5py.h5t as h5t
 import numpy as np
+
+from dhspec.dh5file import FILEVERSION_ATTRIBUTE_NAME, FIRST_FILEVERSION_WITH_UTF8_STRINGS
+
+
+def uses_utf8_strings(h5obj: h5py.Group | h5py.Dataset) -> bool:
+    """Whether strings in the file containing `h5obj` are variable-length UTF-8."""
+    version = h5obj.file.attrs.get(FILEVERSION_ATTRIBUTE_NAME)
+    return version is not None and int(version) >= FIRST_FILEVERSION_WITH_UTF8_STRINGS
+
+
+def str_attr_value(h5obj: h5py.Group | h5py.Dataset, value: str) -> str | np.bytes_:
+    """Value to assign to `h5obj.attrs[...]` for a string attribute.
+
+    Variable-length UTF-8 (a Python str) in files of version 3 and later,
+    fixed-length ASCII (see ascii_str) otherwise.
+    """
+    return value if uses_utf8_strings(h5obj) else ascii_str(value)
+
+
+def str_array_attr_value(h5obj: h5py.Group | h5py.Dataset, values: list[str]) -> np.ndarray:
+    """Value to assign to `h5obj.attrs[...]` for a string array attribute.
+
+    Variable-length UTF-8 in files of version 3 and later, fixed-length ASCII
+    (see ascii_str_array) otherwise.
+    """
+    if uses_utf8_strings(h5obj):
+        return np.array(values, dtype=h5py.string_dtype("utf-8"))
+    return ascii_str_array(values)
 
 
 def ascii_str(value: str) -> np.bytes_:
@@ -49,10 +87,11 @@ def _create_nullterm_str_type(length: int) -> h5t.TypeStringID:
 
 
 def write_str_attr(h5obj: h5py.Group | h5py.Dataset, name: str, value: str) -> None:
-    """Write a string attribute with NULLTERM padding.
+    """Write a string attribute.
 
-    This function writes a fixed-length ASCII string attribute to an HDF5
-    group or dataset using H5T_STR_NULLTERM padding instead of the default
+    In files of version 3 and later, the attribute is a variable-length UTF-8
+    string. Otherwise this function writes a fixed-length ASCII string
+    attribute using H5T_STR_NULLTERM padding instead of the default
     H5T_STR_NULLPAD.
 
     Args:
@@ -60,6 +99,10 @@ def write_str_attr(h5obj: h5py.Group | h5py.Dataset, name: str, value: str) -> N
         name: The attribute name.
         value: The string value to write.
     """
+    if uses_utf8_strings(h5obj):
+        h5obj.attrs.create(name, value, dtype=h5py.string_dtype("utf-8"))
+        return
+
     # Convert to bytes and get length
     value_bytes = value.encode("ascii")
     length = len(value_bytes) + 1  # +1 for null terminator
@@ -81,17 +124,22 @@ def write_str_attr(h5obj: h5py.Group | h5py.Dataset, name: str, value: str) -> N
 def write_str_array_attr(
     h5obj: h5py.Group | h5py.Dataset, name: str, values: list[str]
 ) -> None:
-    """Write a string array attribute with NULLTERM padding.
+    """Write a string array attribute.
 
-    This function writes a fixed-length ASCII string array attribute to an HDF5
-    group or dataset using H5T_STR_NULLTERM padding instead of the default
-    H5T_STR_NULLPAD.
+    In files of version 3 and later, the attribute is an array of
+    variable-length UTF-8 strings. Otherwise this function writes a
+    fixed-length ASCII string array attribute using H5T_STR_NULLTERM padding
+    instead of the default H5T_STR_NULLPAD.
 
     Args:
         h5obj: The HDF5 group or dataset to write the attribute to.
         name: The attribute name.
         values: The list of string values to write.
     """
+    if uses_utf8_strings(h5obj):
+        h5obj.attrs.create(name, np.array(values, dtype=h5py.string_dtype("utf-8")))
+        return
+
     if not values:
         # Handle empty array case
         h5obj.attrs[name] = np.array([], dtype="S1")

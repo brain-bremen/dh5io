@@ -75,4 +75,4 @@ Defined in `pyproject.toml`:
 
 ## HDF5 string handling
 
-HDF5 fixed-length ASCII strings require special treatment. Use helpers from `dh5io/hdf5_strings.py` (`ascii_str`, `ascii_str_array`, `decode_str_attr`) when reading or writing string attributes, rather than passing plain Python strings directly.
+Strings are fixed-length ASCII in files of version 2 and variable-length UTF-8 from version 3 on. Use the helpers from `dh5io/hdf5_strings.py` (`write_str_attr`, `str_attr_value`, `str_array_attr_value`, `decode_str_attr`) when reading or writing string attributes; they choose the representation from the FILEVERSION of the file.

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FILEVERSION 3**: same structure as version 2, but strings are stored as variable-length UTF-8 instead of fixed-length ASCII. `create_dh_file()` creates version 3 files by default; pass `file_version=2` for files that the original dhfun.dll and its MEX files can read. String attributes written later (CONT and WAVELET `Name`/`Comment`, operations, `BOARDS`) follow the version of the file. The specification has a new section *Strings*.
+- `dhspec.dh5file.CURRENT_FILEVERSION`, `FIRST_FILEVERSION_WITH_UTF8_STRINGS`, and `dh5io.hdf5_strings.uses_utf8_strings()`, `str_attr_value()`, `str_array_attr_value()`.
+
 ## [0.4.2] - 2026-08-11
 
 ### Fixed

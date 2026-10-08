@@ -39,7 +39,7 @@ import numpy as np
 import numpy.typing as npt
 
 from dh5io.errors import DH5Error, DH5Warning
-from dh5io.hdf5_strings import ascii_str, decode_str_attr
+from dh5io.hdf5_strings import decode_str_attr, str_attr_value
 from dhspec.wavelet import (
     DATA_DATASET_NAME,
     DATA_DTYPE,
@@ -338,17 +338,17 @@ def create_empty_wavelet_group_in_file(
 
     # Set optional attributes
     if name is not None:
-        wavelet_group.attrs["Name"] = ascii_str(name)
+        wavelet_group.attrs["Name"] = str_attr_value(wavelet_group, name)
     else:
-        wavelet_group.attrs["Name"] = ascii_str(f"WAVELET{wavelet_group_id}")
+        wavelet_group.attrs["Name"] = str_attr_value(wavelet_group, f"WAVELET{wavelet_group_id}")
         logger.debug(
             f"Name attribute not provided, using default {wavelet_group.attrs['Name']}"
         )
 
     if comment is not None:
-        wavelet_group.attrs["Comment"] = ascii_str(comment)
+        wavelet_group.attrs["Comment"] = str_attr_value(wavelet_group, comment)
     else:
-        wavelet_group.attrs["Comment"] = ascii_str("")
+        wavelet_group.attrs["Comment"] = str_attr_value(wavelet_group, "")
 
     return wavelet_group
 

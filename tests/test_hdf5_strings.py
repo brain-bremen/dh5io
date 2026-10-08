@@ -156,7 +156,7 @@ def test_create_boards_are_ascii(tmp_path):
     filename = tmp_path / "test.dh5"
     boards = ["board1", "board2"]
 
-    dh5file = create_dh_file(filename, boards=boards)
+    dh5file = create_dh_file(filename, file_version=2, boards=boards)
 
     with h5py.File(filename, "r") as f:
         boards_attr = f.attrs["BOARDS"]
@@ -258,3 +258,85 @@ def test_write_str_array_attr_variable_lengths(tmp_path):
         dtype = attr_id.get_type()
         padding = dtype.get_strpad()
         assert padding == h5t.STR_NULLTERM
+
+
+def _string_type(obj: h5py.Group | h5py.Dataset, name: str) -> h5t.TypeStringID:
+    return h5py.h5a.open(obj.id, name.encode()).get_type()
+
+
+def _assert_utf8_vlen(obj: h5py.Group | h5py.Dataset, name: str) -> None:
+    type_id = _string_type(obj, name)
+    assert type_id.is_variable_str()
+    assert type_id.get_cset() == h5t.CSET_UTF8
+
+
+def _assert_ascii_fixed(obj: h5py.Group | h5py.Dataset, name: str) -> None:
+    type_id = _string_type(obj, name)
+    assert not type_id.is_variable_str()
+    assert type_id.get_cset() == h5t.CSET_ASCII
+
+
+def _create_file_with_strings(filename, file_version):
+    with create_dh_file(filename, file_version=file_version, boards=["board1", "Ä-board"]) as dh5file:
+        create_empty_cont_group_in_file(
+            dh5file._file, cont_group_id=1, nSamples=10, nChannels=1,
+            sample_period_ns=np.int32(1000000), name="lfp", comment="µV range")
+        add_operation_to_file(dh5file._file, "test", tool="test tool", operator_name="Jörg")
+
+
+def test_version_3_strings_are_utf8_variable_length(tmp_path):
+    filename = tmp_path / "v3.dh5"
+    _create_file_with_strings(filename, 3)
+
+    with h5py.File(filename, "r") as f:
+        assert f.attrs["FILEVERSION"] == 3
+        _assert_utf8_vlen(f, "BOARDS")
+        assert list(f.attrs["BOARDS"]) == ["board1", "Ä-board"]
+        cont = f["CONT1"]
+        for name in ("Name", "Comment"):
+            _assert_utf8_vlen(cont, name)
+        assert cont.attrs["Comment"] == "µV range"
+        operation = f[OPERATIONS_GROUP_NAME]["001_test"]
+        for name in ("Tool", OPERATIONS_OPERATOR_NAME_NAME, "dh5io version"):
+            _assert_utf8_vlen(operation, name)
+        assert operation.attrs[OPERATIONS_OPERATOR_NAME_NAME] == "Jörg"
+
+
+def test_version_2_strings_are_ascii_fixed_length(tmp_path):
+    filename = tmp_path / "v2.dh5"
+    # Non-ASCII characters cannot be written to version 2 files.
+    with pytest.raises(UnicodeEncodeError):
+        _create_file_with_strings(tmp_path / "v2_utf8.dh5", 2)
+    with create_dh_file(filename, file_version=2, boards=["board1"]) as dh5file:
+        create_empty_cont_group_in_file(
+            dh5file._file, cont_group_id=1, nSamples=10, nChannels=1,
+            sample_period_ns=np.int32(1000000), name="lfp")
+        add_operation_to_file(dh5file._file, "test", tool="test tool", operator_name="op")
+
+    with h5py.File(filename, "r") as f:
+        assert f.attrs["FILEVERSION"] == 2
+        _assert_ascii_fixed(f, "BOARDS")
+        cont = f["CONT1"]
+        for name in ("Name", "Comment"):
+            _assert_ascii_fixed(cont, name)
+        operation = f[OPERATIONS_GROUP_NAME]["001_test"]
+        for name in ("Tool", OPERATIONS_OPERATOR_NAME_NAME, "dh5io version"):
+            _assert_ascii_fixed(operation, name)
+            assert _string_type(operation, name).get_strpad() == h5t.STR_NULLTERM
+
+
+def test_readers_accept_both_string_forms(tmp_path):
+    from dh5io.dh5file import DH5File
+
+    for version in (2, 3):
+        filename = tmp_path / f"read_v{version}.dh5"
+        with create_dh_file(filename, file_version=version, boards=["b1", "b2"]) as dh5file:
+            create_empty_cont_group_in_file(
+                dh5file._file, cont_group_id=1, nSamples=10, nChannels=1,
+                sample_period_ns=np.int32(1000000), name="lfp", comment="c")
+        with DH5File(filename, "r") as dh5file:
+            assert dh5file.version == version
+            assert dh5file.boards == ["b1", "b2"]
+            cont = dh5file.get_cont_group_by_id(1)
+            assert cont.name == "lfp"
+            assert cont.comment == "c"

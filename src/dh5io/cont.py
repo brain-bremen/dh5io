@@ -139,7 +139,7 @@ from dh5io.errors import (
     DH5Error,
     DH5Warning,
 )
-from dh5io.hdf5_strings import ascii_str, decode_str_attr
+from dh5io.hdf5_strings import decode_str_attr, str_attr_value
 from dhspec.cont import (
     CONT_DTYPE_NAME,
     CONT_PREFIX,
@@ -344,18 +344,18 @@ def create_empty_cont_group_in_file(
 
     # set name attribute
     if name is not None:
-        cont_group.attrs["Name"] = ascii_str(name)
+        cont_group.attrs["Name"] = str_attr_value(cont_group, name)
     else:
-        cont_group.attrs["Name"] = ascii_str(f"CONT{cont_group_id}")
+        cont_group.attrs["Name"] = str_attr_value(cont_group, f"CONT{cont_group_id}")
         logger.debug(
             f"Name attribute not provided, using default {cont_group.attrs['Name']}"
         )
 
     # set comment attribute
     if comment is not None:
-        cont_group.attrs["Comment"] = ascii_str(comment)
+        cont_group.attrs["Comment"] = str_attr_value(cont_group, comment)
     else:
-        cont_group.attrs["Comment"] = ascii_str("")
+        cont_group.attrs["Comment"] = str_attr_value(cont_group, "")
 
     # set signal type attribute
     if signal_type is not None:
