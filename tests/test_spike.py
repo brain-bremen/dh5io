@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pytest
@@ -110,3 +112,45 @@ def test_channel_info_from_create_channel_info(tmp_path):
         group = spike.create_spike_group_from_data_in_file(
             dh5file._file, 1, [1, 2], 1000, channels=create_channel_info(5, 2, 16, 0.0, 0.0, 0), calibration=1e-6)
         assert dh5io.Spike(group).channels["GlobalChanNumber"][0] == 5
+
+
+TEST_FILE = Path(__file__).parent / "test.dh5"
+
+
+def test_read_legacy_spike_block():
+    """SPIKE0 of test.dh5, written by the lab's legacy tools: 44366 spikes, 32 samples, 1 channel."""
+    with dh5io.DH5File(TEST_FILE, "r") as dh5file:
+        block = dh5file.get_spike_by_id(0)
+        spike.validate_spike_group(block._group)
+        assert block.n_spikes == 44366 and block.n_channels == 1 and block.has_waveforms
+        assert (block.params.spikeSamples, block.params.preTrigSamples, block.params.lockOutSamples) == (32, 8, 16)
+        assert block.sample_period == 40_000
+        assert block.waveforms.shape == (44366, 32, 1)
+        np.testing.assert_array_equal(block.read_waveforms(100, 1)[0], block._group["DATA"][3200:3232])
+        assert block.cluster_info.shape == (44366,)
+        assert np.all(np.diff(block.index) >= 0)
+        assert block.mean_waveform is None
+        assert block.channels["ADCBitWidth"][0] == 16
+
+
+def test_copy_legacy_spike_block(tmp_path):
+    """Writing the legacy block's content with create_spike_group_from_data_in_file reproduces it."""
+    with dh5io.DH5File(TEST_FILE, "r") as dh5file:
+        legacy = dh5file.get_spike_by_id(0)
+        index, waveforms, clusters = legacy.index, legacy.waveforms, legacy.cluster_info
+        params, channels, period = legacy.params, legacy.channels, legacy.sample_period
+        data = legacy._group["DATA"][()]
+    filename = tmp_path / "copy.dh5"
+    with create_dh_file(filename) as dh5file:
+        spike.create_spike_group_from_data_in_file(
+            dh5file._file, 0, index, sample_period_ns=period, waveforms=waveforms,
+            pre_trigger_samples=params.preTrigSamples, lockout_samples=params.lockOutSamples,
+            cluster_info=clusters, channels=channels,
+        )
+    validate_dh5_file(filename)
+    with dh5io.DH5File(filename, "r") as dh5file:
+        copy = dh5file.get_spike_by_id(0)
+        np.testing.assert_array_equal(copy._group["DATA"][()], data)
+        np.testing.assert_array_equal(copy.index, index)
+        np.testing.assert_array_equal(copy.cluster_info, clusters)
+        assert copy.params == params
