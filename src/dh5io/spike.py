@@ -250,8 +250,12 @@ def create_empty_spike_group_in_file(
         raise DH5Error(f"SPIKE id {spike_group_id} outside 0..{MAX_SPIKE_ID}")
     if spikeParams.spikeSamples < 0:
         raise DH5Error("SpikeParams.spikeSamples must not be negative")
-    if calibration is not None and len(calibration) != nChannels:
-        raise DH5Error(f"Calibration has {len(calibration)} values for {nChannels} channels")
+    if calibration is not None:
+        calibration = np.atleast_1d(np.asarray(calibration, dtype=np.float64))
+        if len(calibration) != nChannels:
+            raise DH5Error(f"Calibration has {len(calibration)} values for {nChannels} channels")
+    if channels is not None:
+        channels = np.atleast_1d(np.asarray(channels, dtype=SPIKE_CHANNELS_DTYPE))  # e.g. from create_channel_info
     if channels is not None and len(channels) != nChannels:
         raise DH5Error(f"Channels has {len(channels)} entries for {nChannels} channels")
 

@@ -101,3 +101,12 @@ def test_validation_detects_wrong_data_size(tmp_path):
         file["SPIKE1"].create_dataset("DATA", data=np.zeros((4, 1), np.int16))
     with pytest.raises(DH5Error, match="expected spikeSamples"):
         validate_dh5_file(filename)
+
+
+def test_channel_info_from_create_channel_info(tmp_path):
+    from dhspec.cont import create_channel_info
+
+    with create_dh_file(tmp_path / "test.dh5") as dh5file:
+        group = spike.create_spike_group_from_data_in_file(
+            dh5file._file, 1, [1, 2], 1000, channels=create_channel_info(5, 2, 16, 0.0, 0.0, 0), calibration=1e-6)
+        assert dh5io.Spike(group).channels["GlobalChanNumber"][0] == 5
