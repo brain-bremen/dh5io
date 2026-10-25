@@ -94,6 +94,14 @@ stores these numbers for every spike. There can be up to 256 clusters
 for every `SPIKE` block, which is far more than enough, since a typical
 spike sorting process creates 2 to 4 clusters.
 
+*Spikes without waveforms* (dh5io extension): `spikeSamples` may be 0. `DATA`
+then has 0 rows and the block stores timestamps (and cluster numbers) only,
+e.g. for template-matching spike sorters that keep no waveform per spike.
+Such a block may have the optional dataset `MEAN_WAVEFORM` (`int16`
+array\[K,N\]): the mean waveform, scaled by `Calibration` like `DATA`, with
+`SpikeParams.preTrigSamples` samples before the trigger point. Readers that do
+not know it can ignore it.
+
 """
 
 from dataclasses import dataclass
@@ -105,6 +113,7 @@ DATA_DATASET_NAME = "DATA"
 
 INDEX_DATASET_NAME = "INDEX"
 CLUSTER_INFO_DATASET_NAME = "CLUSTER_INFO"
+MEAN_WAVEFORM_DATASET_NAME = "MEAN_WAVEFORM"  # dh5io extension, for blocks without waveforms
 
 SPIKE_PARAMS_DTYPE = np.dtype(
     [
