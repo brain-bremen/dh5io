@@ -118,3 +118,15 @@ def test_create_cont_group_with_data(tmp_path):
         assert np.array_equal(cont_group.data, data)
         assert cont_group.index.shape == index.shape
         assert np.array_equal(cont_group.index, index)
+
+
+def test_cont_block_ranges():
+    from dhspec.cont import CONT_BLOCK_RANGES, ContBlockGroup, cont_block_group
+
+    ranges = sorted(CONT_BLOCK_RANGES.values())
+    assert all(last < next_first for (_, last), (next_first, _) in zip(ranges, ranges[1:]))
+    assert cont_block_group(1) == ContBlockGroup.RAW
+    assert cont_block_group(2000) == ContBlockGroup.ANALOG
+    assert cont_block_group(3601) == ContBlockGroup.ANALOG_DOWNSAMPLED
+    assert cont_block_group(8001) == ContBlockGroup.CSD
+    assert cont_block_group(0) is None and cont_block_group(5800) is None

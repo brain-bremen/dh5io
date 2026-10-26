@@ -20,6 +20,39 @@ class ContSignalType(Enum):
     CSD = "CSD"
 
 
+class ContBlockGroup(Enum):
+    """Groups of CONT block ids used by the lab's converters (a convention, not part of the format)."""
+
+    RAW = "RAW"  # raw neural data (wideband or AP band), one block per channel
+    ANALOG = "ANALOG"  # raw analog inputs (eye position, mains reference, ...)
+    LFP = "LFP"  # downsampled neural data
+    ANALOG_DOWNSAMPLED = "ANALOG_DOWNSAMPLED"  # downsampled analog and derived behavioural signals
+    MUA = "MUA/ESA"  # MUA / ESA envelope
+    AP = "AP"  # high-pass filtered raw data (not for long-term storage)
+    CSD = "CSD"  # current source density
+
+
+# First and last CONT block id of each group: 1600 neural channels, followed by 400 analog
+# channels for the raw and downsampled data. Channel k (0-based) of a group is CONT<first + k>.
+CONT_BLOCK_RANGES: dict[ContBlockGroup, tuple[int, int]] = {
+    ContBlockGroup.RAW: (1, 1600),
+    ContBlockGroup.ANALOG: (1601, 2000),
+    ContBlockGroup.LFP: (2001, 3600),
+    ContBlockGroup.ANALOG_DOWNSAMPLED: (3601, 4000),
+    ContBlockGroup.MUA: (4001, 5600),
+    ContBlockGroup.AP: (6001, 7600),
+    ContBlockGroup.CSD: (8001, 9600),
+}
+
+
+def cont_block_group(id: int) -> ContBlockGroup | None:
+    """The group whose id range contains CONT block id ``id``, or None."""
+    for group, (first, last) in CONT_BLOCK_RANGES.items():
+        if first <= id <= last:
+            return group
+    return None
+
+
 CHANNELS_DTYPE = np.dtype(
     [
         ("GlobalChanNumber", np.int16),
