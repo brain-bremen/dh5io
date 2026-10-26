@@ -45,6 +45,7 @@ import numpy
 
 import dh5io.cont as cont
 import dh5io.event_triggers as event_triggers
+import dh5io.spike as spike
 import dh5io.trialmap as trialmap
 import dh5io.wavelet as wavelet
 from dhspec.dh5file import BOARDS_ATTRIBUTE_NAME, FILEVERSION_ATTRIBUTE_NAME
@@ -264,7 +265,14 @@ class DH5File:
         return (nSamples, nChannels)
 
     # spike groups
-    # TODO:
+    def get_spikes(self) -> list[spike.Spike]:
+        """All SPIKE blocks as :class:`~dh5io.spike.Spike` objects."""
+        return [spike.Spike(group) for group in spike.get_spike_groups_from_file(self._file)]
+
+    def get_spike_by_id(self, id: int) -> spike.Spike | None:
+        group = spike.get_spike_group_by_id_from_file(self._file, id)
+        return None if group is None else spike.Spike(group)
+
     def get_spike_groups(self) -> list[h5py.Group]:
         return [self._file[name] for name in self.get_spike_group_names()]
 

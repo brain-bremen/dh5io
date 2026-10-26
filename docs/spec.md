@@ -497,6 +497,18 @@ waveforms themselves.
   for every `SPIKE` block, which is far more than enough, since a typical
   spike sorting process creates 2 to 4 clusters.
 
+_Spikes without waveforms_ (dh5io extension): `spikeSamples` may be 0. `DATA`
+then has 0 rows (M = 0 × S) and the block stores timestamps, and optionally
+cluster numbers, only, e.g. for the output of template-matching spike sorters
+that do not keep a waveform per spike. Such a block may have the optional
+dataset
+
+- `MEAN_WAVEFORM` (`int16` array\[K,N\]): the mean waveform of the spikes,
+  scaled by `Calibration` like `DATA`, with `SpikeParams.preTrigSamples`
+  samples before the trigger point.
+
+Readers that do not know `MEAN_WAVEFORM` can ignore it.
+
 ### `WAVELET` blocks
 
 `WAVELET` blocks store time-frequency analysis data, typically obtained through

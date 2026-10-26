@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Writing and reading SPIKE blocks** (`dh5io.spike`): `create_empty_spike_group_in_file`, `create_spike_group_from_data_in_file`, the `Spike` class (timestamps, waveforms as `(nSpikes, spikeSamples, nChannels)`, cluster numbers, chunked writing with `write_spikes`), `DH5File.get_spikes()`/`get_spike_by_id()`, and validation of SPIKE blocks in `validate_dh5_file`.
+- **SPIKE blocks without waveforms**: `spikeSamples = 0` (empty `DATA`) for timestamps-only spike trains, e.g. from template-matching spike sorters, with an optional `MEAN_WAVEFORM` dataset (documented as a dh5io extension in the specification).
+
 ## [0.4.2] - 2026-08-11
 
 ### Fixed

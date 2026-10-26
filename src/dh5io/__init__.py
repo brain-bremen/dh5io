@@ -12,6 +12,7 @@ from dh5io.errors import (
     DH5SampleCountMismatchWarning,
     DH5SampleRateMismatchWarning,
 )
+from dh5io.spike import Spike
 from dh5io.trialmap import Trialmap
 from dh5io.wavelet import Wavelet
 
@@ -27,6 +28,7 @@ __all__ = [
     "DH5SampleRateMismatchWarning",
     "DH5File",
     "Cont",
+    "Spike",
     "Trialmap",
     "Wavelet",
     "create_dh_file",

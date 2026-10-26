@@ -13,6 +13,7 @@ from dh5io.cont import (
 from dh5io.errors import DH5Error, DH5Warning
 from dh5io.event_triggers import validate_event_triggers
 from dh5io.operations import validate_operations
+from dh5io.spike import get_spike_groups_from_file, validate_spike_group
 from dh5io.trialmap import validate_trialmap
 from dhspec.dh5file import BOARDS_ATTRIBUTE_NAME, FILEVERSION_ATTRIBUTE_NAME
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ValidationOptions:
     validate_cont: bool = True
+    validate_spike: bool = True
     validate_trialmap: bool = True
     validate_event_triggers: bool = True
     validate_operations: bool = True
@@ -60,6 +62,10 @@ def validate_dh5_file(
             cont_groups = get_cont_groups_from_file(file)
             for cont_group in cont_groups:
                 validate_cont_group(cont_group)
+
+        if options.validate_spike:
+            for spike_group in get_spike_groups_from_file(file):
+                validate_spike_group(spike_group)
 
         if options.validate_event_triggers:
             validate_event_triggers(file)
