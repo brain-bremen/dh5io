@@ -418,6 +418,20 @@ total number of samples, it is possible to calculate the following
 information: offsets of starting and ending sample for each recording
 region, and their respective time stamps.
 
+Conventional block ids (not part of the format; `dhspec.cont.CONT_BLOCK_RANGES`): the lab's
+converters store one channel per `CONT` block and number the blocks by signal group, so that
+channel k (0-based) of a group is `CONT<first id + k>`:
+
+| ids         | content                                                    |
+| ----------- | ---------------------------------------------------------- |
+| 1 – 1600    | raw neural data                                            |
+| 1601 – 2000 | raw analog inputs (eye position, mains reference, ...)     |
+| 2001 – 3600 | LFP (downsampled neural data)                              |
+| 3601 – 4000 | downsampled analog inputs and derived behavioural signals  |
+| 4001 – 5600 | MUA / ESA envelope                                         |
+| 6001 – 7600 | high-pass filtered raw data (not for long-term storage)    |
+| 8001 – 9600 | current source density                                     |
+
 ### `SPIKE` blocks
 
 `SPIKE` blocks are stored in groups named `SPIKEn`, where n can have values
